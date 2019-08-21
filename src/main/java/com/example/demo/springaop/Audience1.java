@@ -18,6 +18,7 @@ public class Audience1 {
 	
 	
 	@Pointcut("execution(* com.example.demo.springaop.Performance.perform(..))")
+	//@Pointcut("execution(* com.example.demo.*.*(..))") //测试切点通配的情况
 	public void performance() {}
 	
 

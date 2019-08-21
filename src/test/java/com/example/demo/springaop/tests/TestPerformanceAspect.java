@@ -12,7 +12,7 @@ import com.example.demo.springaop.Performance;
 
 @RunWith(SpringRunner.class)
 @SpringBootTest(classes= {DemoApplication.class})
-public class TestAudience {
+public class TestPerformanceAspect {
 	
 	
 	@Resource
