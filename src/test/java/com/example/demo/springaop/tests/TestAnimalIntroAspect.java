@@ -9,7 +9,6 @@ import org.springframework.test.context.junit4.SpringRunner;
 
 import com.example.demo.DemoApplication;
 import com.example.demo.springaop.Animal;
-import com.example.demo.springaop.Girl;
 import com.example.demo.springaop.Person;
 
 /**
