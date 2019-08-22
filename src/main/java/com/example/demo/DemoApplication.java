@@ -1,7 +1,6 @@
 package com.example.demo;
 
 import org.springframework.boot.SpringApplication;
-
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.EnableAspectJAutoProxy;
 @EnableAspectJAutoProxy//此注解可加可不加，因为是SPRING 默认是将它开启的
