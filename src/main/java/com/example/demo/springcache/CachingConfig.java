@@ -15,8 +15,9 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.core.io.ClassPathResource;
 
 /**
- * 缓存管理器SPRING 容器中只能注入一个，否则报错 如果要使用多个缓存管理器，有两种解决方案： 一、使用SPRING
- * 提供的CompositeCacheManager把多个缓存管理器组合起来使用 二、使用@Primary注解，定义一个首选CacheManager
+ * 缓存管理器SPRING 容器中只能注入一个，否则报错 如果要使用多个缓存管理器，有两种解决方案：
+ * 一、使用SPRING提供的CompositeCacheManager把多个缓存管理器组合起来使用
+ * 二、使用@Primary注解，定义一个首选CacheManager
  * 第二种方案虽然可行，但是到头来真正可用的仍然只有一个CacheManager,具体原理可参见
  * {@link https://blog.csdn.net/qq_26440803/article/details/90145543}
  * 所以第一种方案才能真正做到同时使用多个缓存管理器 所以我们在测试的时候注意注解掉其他的缓存管理器 关于REDIS缓存管理器，我们后续有时间再补充
@@ -31,6 +32,7 @@ import org.springframework.core.io.ClassPathResource;
 public class CachingConfig {
 	/**
 	 * ConcurrentMapCacheManager缓存管理器
+	 * 比较简单的一个内存管理器
 	 * 
 	 * @return
 	 */
@@ -64,7 +66,8 @@ public class CachingConfig {
 
 	/**
 	 * EhCache缓存管理器工厂类
-	 * 
+	 * ehCache支持按照配置文件进行配置
+	 * 可以配置缓存大小，存活时间等
 	 * @return
 	 */
 
