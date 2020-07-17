@@ -38,7 +38,7 @@ public class CachingConfig {
 	 */
 
 	@Bean(name = "defaultCacheManager")
-	@Primary
+	//@Primary
 	public CacheManager cacheManager() {
 		ConcurrentMapCacheManager concurrentMapCacheManager = new ConcurrentMapCacheManager();
 		Set<String> nameSet = new HashSet<String>();

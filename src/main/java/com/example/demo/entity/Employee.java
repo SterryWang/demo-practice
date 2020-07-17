@@ -1,6 +1,8 @@
 package com.example.demo.entity;
 
-public class Employee {
+import java.io.Serializable;
+
+public class Employee  implements  Serializable{
 
 	public Integer id;
 	public String name;

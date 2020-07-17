@@ -52,7 +52,7 @@ public class TrackCounter {
 
 	public int getCurrentFailedCount(int trackNum) {
 
-		return failedCount.containsKey(trackNum) ? failedCount.get(trackNum) : 0;
+		return failedCount.getOrDefault(trackNum,0);
 
 	}
 

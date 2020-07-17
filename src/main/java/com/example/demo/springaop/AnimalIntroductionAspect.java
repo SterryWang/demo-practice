@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component;
 public class AnimalIntroductionAspect {
 	
 	//为所有Person接口的实现类引入Animal接口功能，接口默认实现FemaleAnimal.class
-	@DeclareParents(value="com.example.demo.springaop.Person+",defaultImpl=FemaleAnimal.class)
+	@DeclareParents(value="com.example.demo.springaop.Person",defaultImpl=FemaleAnimal.class)
 	public Animal animal;//要引入的接口，通过@DeclaredParents赋予其默认的实现类
     
 
