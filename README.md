@@ -455,4 +455,105 @@ H2数据库在我们测试中经常用到，对于测试场景来说很方便和
 
    我在前文也说了，**==DEBUG模式下，H2-CONSOLE不可访问==**，但是我又要做单元测试时观测H2数据库数据，所以就在junit测试中用了线程睡眠的方式,RUN TEST而不是DEBUG TEST,利用线程睡眠间隙访问H2-CONSOLE验证测试结果。
 
-   ![image-20200713142433042](https://raw.githubusercontent.com/SterryWang/picsbed/master/img/20200713142440.png?token=ADFHXAWCF3SRODV5CL6QLBS7BP7GK)
+## 第三章  SPRING 消息
+
+> 本章内容以《SPRING 实战》一书中的   第17章 **SPRING 消息**为蓝本
+
+### 3.1 异步消息简介
+
+#### 3.1.1 为何用异步消息
+
+​		弥补同步通信的无法满足的应用场景，客户端无需等待全程过程完成后再继续执行。可以类比一个场景：发完邮件后赶飞机。
+
+#### 3.1.2 两种通用的目的地
+
+**队列**和**主题**，即点对点和发布/订阅模型。
+
+![image-20200720182043236](https://raw.githubusercontent.com/SterryWang/picsbed/master/img/20200720182145.png)
+
+所谓的点对点，指的都是一则消息的生产者肯定只有一个，而且这则消息最终也会被某一一个消费者消费。但队列是允许有多个消费者的。而主题模式下，同一则消息，所有的订阅者都会接受到这则消息的副本。
+
+![image-20200720182330002](https://raw.githubusercontent.com/SterryWang/picsbed/master/img/20200720182331.png)
+
+#### 3.1.3 异步消息的可选方案
+
+- Java 消息服务（JMS）
+
+  JAVA定义的消息服务API
+
+- 高级消息队列协议（AMQP）
+
+  关于两者的不同，我们会在章节末做个比较
+
+#### 3.1.4 异步消息的优点
+
+- 规避同步通信时客户端等待，提高客户端应用性能
+- 面向消息，解耦客户端和服务端（针对RPC通信做比较）
+- 位置独立（不必记录远程服务地址等）
+- 确保投递（服务端崩溃了，重新拉起来时依然可以从消息服务器中接收消息）
+
+### 3.2  SPRING & JMS 实现
+
+​		**JMS**是JAVA定义的消息服务API，PACKAGE前缀为`javax.jms.*`, 定义了JAVA消息的通用规范，只有接口和异常，只有极少数几个实现类。上一节我们说了异步消息常用的两种方案有JMS 和AMQP，我们将开两节分开讲述这两部分内容。JMS我们使用**ActiveMQ** 作为消息代理服务器。
+
+#### 3.2.1 准备工作
+
+- **安装消息服务器ActiveMQ**
+
+  消息代理服务器我们使用**==ActiveMQ==**，它是使用**JMS**进行异步消息传递的。具体的安装方法我已经写到笔记了。
+
+- **引入POM 依赖**
+
+```xml
+<!-- 引入AMQ依赖 -->
+<dependency>
+   <groupId>org.springframework.boot</groupId>
+   <artifactId>spring-boot-starter-activemq</artifactId>
+</dependency>
+```
+
+理论上序列化，消息格式等操作还需要`jackson`，但是`spring-boot-starter-web`已经包含该组件，这里就列举核心组件了。
+
+#### 3.2.2 JMS 基础配置
+
+​		SPRING 中搭建消息代理，其实我们需要分成***发送者（生产者）和 接收者（消费者）***两部分来说，他们所需要的基础组件还是有些差别的。但是他们**有些组件作为基础设施是共有的**：
+
+- **连接工厂**
+
+  顾名思义，连接到消息代理服务器的工厂类，对于发送者和接受者都是必备的。作为直接面向消息代理服务器的组件，它的实现类往往捆绑了相应代理服务器的特性（就想JAVA针对不通过数据库的驱动），但是它最终又是实现了`javax.jms.ConnectionFactory`接口的
+
+- **消息目的地**
+
+  [3.1.2](#3.1.2 两种通用的目的地)小节中我们介绍了**队列和主题**两种消息目的地，消息收发双方都需要连接到该目的地。
+
+- **JMS模板**
+
+  SPRING定义了这个模板类封装了消息**发送和接收**各类操作，大大简化了原本失控的重复的代码（就像jdbcTemlate之于基础的JDBC操作一样）。**模板是需要注入连接工厂的**。后面我们了解到，模板对于**接收端**来说，**不是必须的**，因为SPRING 2.0 ==**对于消息接收，还有另一种方案——消息驱动POJO**==
+
+  
+
+  简单来描述这三者关系，连接工厂是三者中最底层的，直接面向消息代理服务器（或者说它产生的连接对象直接面向代理服务器）。而**JMS模板是依赖于连接工厂和消息目的地**的，JMS封装了基本的消息发送和接收操作，我们看下一段样板的消息发送和接收代码有多么麻烦：
+
+  **发送代码**
+
+  ![image-20200722103718782](https://raw.githubusercontent.com/SterryWang/picsbed/master/img/20200722103720.png)
+
+  **接收代码**
+
+  ![image-20200722102148152](https://raw.githubusercontent.com/SterryWang/picsbed/master/img/20200722102150.png)
+
+  看看出现了多少对象
+
+  1. 连接工厂`ConnectionFactory`
+  2. 连接对象`Connection`,连接工厂产生。
+  3. 会话`Session`,由连接产生，在ActiveMQ模式下，连接和会话是**关联**关系
+  4. 目的地`Destination`，分为queue和topic两种
+  5. 消息生产者`MessageConsumer`和消费者`MessageProducer`
+  6. 消息主体`Message`
+
+  注意，接收的时候是通过`conn.start()`方法；还有最后IO的关闭操作必须的。我们看到这些代码冗长而重复，JmsTemplate就是为了==**消除这些冗长繁复的代码而生的，它可以创建连接，获得会话，以及发送和接收消息，使得我们可以专注于构建要发送的消息或者处理收到的消息**==。其实我们看下`javax.jms.*`包的类图，可以看下接口类型和关系：
+
+  ![Package jms](https://raw.githubusercontent.com/SterryWang/picsbed/master/img/20200722111439.png)
+
+  
+
