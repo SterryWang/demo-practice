@@ -528,7 +528,7 @@ H2数据库在我们测试中经常用到，对于测试场景来说很方便和
 
 - **JMS模板**
 
-  SPRING定义了这个模板类封装了消息**发送和接收**各类操作，大大简化了原本失控的重复的代码（就像jdbcTemlate之于基础的JDBC操作一样）。**模板是需要注入连接工厂的**。后面我们了解到，模板对于**接收端**来说，**不是必须的**，因为SPRING 2.0 ==**对于消息接收，还有另一种方案——消息驱动POJO**==
+  SPRING定义了这个模板类封装了消息**发送和接收**各类操作，大大简化了原本失控的重复的代码（就像jdbcTemlate之于基础的JDBC操作一样）。**模板是需要注入连接工厂的**。后面我们了解到，模板对于**接收端**来说，**不是必须的**，因为SPRING 2.0 ==**对于消息接收，除了使用模板外，还有另一种方案——消息驱动POJO**==，后面我们会讲到。
 
   
 
@@ -548,12 +548,292 @@ H2数据库在我们测试中经常用到，对于测试场景来说很方便和
   2. 连接对象`Connection`,连接工厂产生。
   3. 会话`Session`,由连接产生，在ActiveMQ模式下，连接和会话是**关联**关系
   4. 目的地`Destination`，分为queue和topic两种
-  5. 消息生产者`MessageConsumer`和消费者`MessageProducer`
+  5. 消息生产者`MessageConsumer`和消费者`MessageProducer`，由``session`通过`Destination`产生
   6. 消息主体`Message`
 
   注意，接收的时候是通过`conn.start()`方法；还有最后IO的关闭操作必须的。我们看到这些代码冗长而重复，JmsTemplate就是为了==**消除这些冗长繁复的代码而生的，它可以创建连接，获得会话，以及发送和接收消息，使得我们可以专注于构建要发送的消息或者处理收到的消息**==。其实我们看下`javax.jms.*`包的类图，可以看下接口类型和关系：
 
   ![Package jms](https://raw.githubusercontent.com/SterryWang/picsbed/master/img/20200722111439.png)
 
-  
+  好了，基础设施我们就介绍到这里，下面我们看看如何使用这些基础组件来简化JMS消息的收发。
+
+#### 3.2.3 使用JmsTemplate发送消息
+
+##### 3.2.3.1 具体配置
+
+JmsTemplate的主要价值就提现在消息发送上，在接收消息方面，JmsTemplate的并不是最优选，关于JmsTemplate接收消息的实现机制有兴趣可以去自己研究。其实利用上一节的JMS基础设施，我们就足够完成JMS消息发送。直接看**配置代码**：[代码连接](src/main/java/com/example/demo/message/ActiveMQConfig.java)
+
+```java
+package com.example.demo.message;
+
+import org.apache.activemq.ActiveMQConnectionFactory;
+import org.apache.activemq.command.ActiveMQQueue;
+import org.apache.activemq.command.ActiveMQTopic;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.jms.activemq.ActiveMQProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.jms.core.JmsTemplate;
+
+import javax.jms.Destination;
+import javax.jms.Queue;
+import javax.jms.Topic;
+
+/**
+ * @author wangxg3
+ * ActiveMQ消息代理配置类
+ */
+@Configuration
+@EnableConfigurationProperties(ActiveMQProperties.class)
+public class ActiveMQConfig {
+
+    /**
+     * 自定义队列名属性，表队列名
+     */
+    @Value("${spring.activemq.queue-name}")
+    private String queueName;
+    /**
+     * 自定义属性，表主题名
+     */
+    @Value("${spring.activemq.topic-name}")
+    private String topicName;
+
+    /**
+     * ActiveMQ连接工厂
+     *
+     * @param properties
+     * @return
+     */
+    @Bean("MyActiveMQCF")
+    public ActiveMQConnectionFactory jmsConnectionFactory(ActiveMQProperties properties) {
+        ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory();
+
+
+        //packages的设置是sonar提醒的，是考虑安全性的问题
+        ActiveMQProperties.Packages packages = properties.getPackages();
+        if (packages.getTrustAll() != null) {
+            connectionFactory.setTrustAllPackages(packages.getTrustAll());
+        }
+        /*if (!packages.getTrusted().isEmpty()) {
+            connectionFactory.setTrustedPackages(packages.getTrusted());
+        }*/
+        connectionFactory.setTrustAllPackages(true);
+        //设置消息代理服务器的地址，其实还可以用户密码，超时时间等，不赘述
+        if (properties.getBrokerUrl() != null) {
+            connectionFactory.setBrokerURL(properties.getBrokerUrl());
+        }
+        if (properties.getUser() != null && properties.getPassword() != null) {
+            connectionFactory.setUserName(properties.getUser());
+            connectionFactory.setPassword(properties.getPassword());
+
+        }
+
+
+        return connectionFactory;
+    }
+
+    /**
+     * 队列
+     *
+     * @return
+     */
+    @Bean(name = {"activeMQQueue", "defJmsDst"})
+    public Queue activeMQQueue() {
+        return new ActiveMQQueue(queueName);
+    }
+
+    /**
+     * 主题
+     *
+     * @return
+     */
+    @Bean(name = {"activeMQTopic"})
+    public Topic activeMQTopic() {
+        return new ActiveMQTopic(topicName);
+    }
+
+    /**
+     * jms模板
+     *
+     * @param connectionFactory
+     * @param dst
+     * @return
+     */
+    @Bean(name = "MyJmsTemplate")
+    public JmsTemplate jmsTemplate(@Qualifier("MyActiveMQCF") ActiveMQConnectionFactory connectionFactory, @Qualifier("defJmsDst") Destination dst) {
+        JmsTemplate jmsTemplate = new JmsTemplate(connectionFactory);
+        //设置默认的目的地，即使设置了默认目的地，使用JmsTemplate发送消息时依然可以指定目的地
+        jmsTemplate.setDefaultDestination(dst);
+
+       //是否使用订阅模式，当目的地为字符串形式时，jmstemplate将默认发送或者接收到主题类型的目的地
+        // jmsTemplate.setPubSubDomain(true);
+
+
+        return jmsTemplate;
+
+    }
+
+
+}
+
+```
+
+如上所述，配置类里共配置了**连接工厂**，**目的地**，**jms模板**三种基础设施，同时还注入了`ActiveMQProperties.class`，注意点在代码里都有所体现，重点说3点：
+
+1. connectionFactory.setTrustAllPackages()方法设置可信任packages，这点很重要，在接收消息并转换成对象时，涉及到安全问题。
+2. jmsTempate 可以设置默认目的地，这样使用一些方法时（比如`jmsTempalte.send()`）会使用默认目的地
+3. `jmsTemplate.setPubSubDomain()`方法可以设置是否开启订阅模式，如果设定为`true`,则所有发送或者接收方法在不明确目的地类型的情况下（比如仅使用jndi 目的地名称），则目的地类型自动默认为Topic类型。
+
+##### 3.2.3.2 发送案例
+
+消息发送操作其实可以像书上一样封装成一个针对某种消息类型的`service`类，这样可以再业务代码层面隔绝jms模板，消息目的地这些基础设施，从而实现二者的解耦，做好代码分层：
+
+![image-20200806163158323](https://raw.githubusercontent.com/SterryWang/picsbed/master/img/20200806163201.png)
+
+但是为了方便起见，直接在testcase中编写了，代码链接：[ActiveMQTests](src/test/java/com/example/demo/message/tests/ActiveMQTests.java)
+
+```java
+@RunWith(SpringRunner.class)
+@SpringBootTest(classes = DemoApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+public class ActiveMQTests {
+
+
+    @Resource(name = "simpleExecutor")
+    ExecutorService executorService;
+    @Resource(name = "MyJmsTemplate")
+    private JmsOperations jmsTemplate;
+
+    @Resource
+    private Queue jmsQueue;
+
+    @Resource
+    private Topic jmsTopic;
+
+
+    private static Logger log = LoggerFactory.getLogger(ActiveMQTests.class);
+
+    /**
+     * 测试发送到队列
+     * 使用MessageCreator
+     */
+    @Test
+    public void testSendToQueue() {
+//将发送到jmsTemplate定义的默认队列
+        //演示第一种发送方式，使用messageCreator先创建message再发送
+        jmsTemplate.send(new MessageCreator() {
+            @Override
+            public Message createMessage(Session session) throws JMSException {
+                return session.createTextMessage("你好啊！我是生产者");
+            }
+        });
+
+
+    }
+
+    /**
+     * 测试从队列获取
+     * 使用jmsTemplate先接收再转换
+     *
+     * @throws JMSException
+     */
+    @Test
+    public void testRecvFromQueue() throws JMSException {
+        //第一种接收信息方式，返回类型为Message ,使用类型强制转换为特定类型的Message实现类，本质上
+        //读取的还是消息
+       /* TextMessage msg = (TextMessage)jmsTemplate.receive("jms.queue");
+
+        System.out.println(msg.getText());*/
+        //第二种接收信息转换方式，使用jmsTemplate内部定义的消息转换器，把接收到的message转换为具体的对象Object
+        // String msg = (String) jmsTemplate.receiveAndConvert("jms.queue");
+        String msg = (String) jmsTemplate.receiveAndConvert(jmsQueue);
+
+        System.out.println(msg);
+    }
+
+    /**
+     * 测试发送到主题Topic
+     * 使用jmsTemplatex先转换对象为msg,再发送
+     */
+    @Test
+    public void testSendToTopic() {
+        Employee e = new Employee();
+        e.setId(1);
+        e.setName("小白");
+        e.setAge(18);
+        //这种写法会默认目的地类型是队列而不是主题
+        log.info("开始发送topic信息了。。。");
+        jmsTemplate.send(jmsTopic, new MessageCreator() {
+            @Override
+            public Message createMessage(Session session) throws JMSException {
+                // return session.createObjectMessage(e);
+                return session.createTextMessage("你好，这是发往TOPIC的文本信息！");
+            }
+        });
+
+        //发送主题型目的地的正确写法
+        //第二种发送方式，常用，使用jmsTemplate内部消息转换器将对象转换成message再发送
+        //jmsTemplate.convertAndSend(jmsTopic, e);
+
+
+    }
+
+    /**
+     * 测试从主题接收信息
+     */
+    @Test
+    public void recvFromTopic() {
+        Employee e = (Employee) jmsTemplate.receiveAndConvert(jmsTopic);
+        System.out.println(e);
+
+    }
+
+
+    @Test
+    public void recvFromTopic2() throws IOException, JMSException {
+        log.info("开始监听了。。。");
+        Message msg = jmsTemplate.receive(jmsTopic);
+
+        assert msg != null;
+        System.out.println("接收到的MESSAGE类型为：" + msg.getClass());
+
+        log.info("接收到的MESSAGE类型为：{}", msg.getClass());
+        if (msg instanceof TextMessage) {
+
+            log.info("接收到的信息为：{}", ((TextMessage) msg).getText());
+        } else if (msg instanceof ObjectMessage) {
+            log.info("接收到的对象为：{}", ((ObjectMessage) msg).getObject());
+        } else {
+            log.info("接收的信息为：{}", msg);
+        }
+        /*ufferedWriter  bufferedWriter = new BufferedWriter(new FileWriter("d:/topicmsg.log"));
+
+        bufferedWriter.write("接收到的MESSAGE类型为：" + msg.getClass());
+        bufferedWriter.close();*/
+    }
+
+
+}
+```
+
+`testSendToQueue()`和`testSendToTopic()`展示了使用了jmsTemplate发送消息到队列和主题的方法，但二者的消息载体的JAVA类型分别是字符串和对象，但实现方式都是通过`MessageCreator`实现的，它的作用是把JAVA类型的消息载体转换为``Message`类型。代码里也说明了第二种消息转换方法，就是直接使用`jmsTemplate.convertAndSend()`方法，这是因为`jmsTemplate`是拥有默认消息转换器的，此方法正是使用了消息转换器。此外Spring还提供了各种消息转换器，他们都实现了`MessageConverter`接口，开发人员可以自行选择注入到模板中。
+
+​		然后我们就可以在ActiveMQ服务器上看到了：
+
+发送到队列：
+
+![image-20200806165325810](https://raw.githubusercontent.com/SterryWang/picsbed/master/img/20200806165328.png)
+
+发送到主题(订阅)：
+
+![image-20200806165431963](https://raw.githubusercontent.com/SterryWang/picsbed/master/img/20200806165434.png)
+
+#### 3.2.4 接收JMS消息
+
+​		上一小节的testcase里我们已经展示了使用jmsTemplate接收消息的方式。但使用模板接收消息是存在弊端的，首先因为它的receive方法是同步的，接收不到消息该方法是阻塞的（除非超时），其次只有此方法被调用时才可以接收消息，这种主动接收的方法时效性也成问题。有没有那么一种机制，消息可以推送给客户端呢，就像我们的手机收到微信一样？这就是我们要说的**==消息监听==**。
+
+
+
+
 

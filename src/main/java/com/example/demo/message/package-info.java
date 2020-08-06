@@ -4,5 +4,7 @@
  * 通过SPRING实现异步通信的两种方案：
  * 即JMS 和 AMQP,试图比较两者的特点，
  * 使用场景，优劣等
+ * 测试类包地址如下：
+ * {@link com.example.demo.message.tests}
  */
 package com.example.demo.message;

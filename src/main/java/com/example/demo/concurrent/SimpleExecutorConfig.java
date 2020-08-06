@@ -13,6 +13,7 @@ public class SimpleExecutorConfig {
     @Bean("simpleExecutor")
     public ExecutorService  fixedExecutorPool(){
         ExecutorService  pool = Executors.newFixedThreadPool(20);
+
         return pool;
     }
 

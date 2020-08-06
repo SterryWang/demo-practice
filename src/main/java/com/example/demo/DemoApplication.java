@@ -10,7 +10,7 @@ import org.springframework.context.annotation.PropertySource;
 
 @EnableAspectJAutoProxy//此注解可加可不加，因为是SPRING 默认是将它开启的
 @SpringBootApplication(scanBasePackages="com.example.demo",exclude = {RedisAutoConfiguration.class, RedisRepositoriesAutoConfiguration.class})
-//@PropertySource(value= "classpath:test.properties")
+//@PropertySource(value= "classpath:test.properties")//用于解析自定义的属性配置文件
 public class DemoApplication {
 
 
