@@ -819,6 +819,8 @@ public class ActiveMQTests {
 
 `testSendToQueue()`和`testSendToTopic()`展示了使用了jmsTemplate发送消息到队列和主题的方法，但二者的消息载体的JAVA类型分别是字符串和对象，但实现方式都是通过`MessageCreator`实现的，它的作用是把JAVA类型的消息载体转换为``Message`类型。代码里也说明了第二种消息转换方法，就是直接使用`jmsTemplate.convertAndSend()`方法，这是因为`jmsTemplate`是拥有默认消息转换器的，此方法正是使用了消息转换器。此外Spring还提供了各种消息转换器，他们都实现了`MessageConverter`接口，开发人员可以自行选择注入到模板中。
 
+![image-20200811183345620](https://raw.githubusercontent.com/SterryWang/picsbed/master/img/20200811183348.png)
+
 ​		然后我们就可以在ActiveMQ服务器上看到了：
 
 发送到队列：
@@ -831,7 +833,15 @@ public class ActiveMQTests {
 
 #### 3.2.4 接收JMS消息
 
-​		上一小节的testcase里我们已经展示了使用jmsTemplate接收消息的方式。但使用模板接收消息是存在弊端的，首先因为它的receive方法是同步的，接收不到消息该方法是阻塞的（除非超时），其次只有此方法被调用时才可以接收消息，这种主动接收的方法时效性也成问题。有没有那么一种机制，消息可以推送给客户端呢，就像我们的手机收到微信一样？这就是我们要说的**==消息监听==**。
+​		上一小节的testcase里我们已经展示了使用jmsTemplate接收消息的方式。但使用模板接收消息是存在弊端的，首先因为它的receive方法是同步的，接收不到消息该方法是阻塞的（除非超时），其次只有此方法被调用时才可以接收消息，这种主动接收的方法时效性也成问题。有没有那么一种机制，接收端**==可以异步接收消息==**，就像我们的手机收到微信一样？这就是我们要说的**==消息监听==**。
+
+##### 3.2.4.1 Spring消息驱动pojo
+
+​		为了让我们理解消息驱动模型，书上用了一些篇幅从EJB的MDB(message-driven  bean)开始讲，一路演进到SPRING 的消息驱动POJO。SPRING 给普普通通的POJO赋予了消息接收能力 ，是把pojo作为消息监听器，并且需要把pojo放到消息监听器容器里。
+
+![image-20200807153708854](https://raw.githubusercontent.com/SterryWang/picsbed/master/img/20200807153711.png)
+
+​		SPRING的JMS消息监听原理相同。
 
 
 

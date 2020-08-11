@@ -1,6 +1,7 @@
 package com.example.demo.message;
 
 import org.apache.activemq.ActiveMQConnectionFactory;
+import org.apache.activemq.ActiveMQPrefetchPolicy;
 import org.apache.activemq.command.ActiveMQQueue;
 import org.apache.activemq.command.ActiveMQTopic;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -10,10 +11,10 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jms.core.JmsTemplate;
+import org.springframework.jms.listener.DefaultMessageListenerContainer;
+import org.springframework.jms.listener.MessageListenerContainer;
 
-import javax.jms.Destination;
-import javax.jms.Queue;
-import javax.jms.Topic;
+import javax.jms.*;
 
 /**
  * @author wangxg3
@@ -62,7 +63,15 @@ public class ActiveMQConfig {
             connectionFactory.setUserName(properties.getUser());
             connectionFactory.setPassword(properties.getPassword());
 
+
         }
+        ActiveMQPrefetchPolicy  prefetchPolicy  =  new ActiveMQPrefetchPolicy();
+        prefetchPolicy.setQueuePrefetch(1);
+        connectionFactory.setPrefetchPolicy(prefetchPolicy);
+
+
+
+
 
 
         return connectionFactory;
@@ -73,7 +82,7 @@ public class ActiveMQConfig {
      *
      * @return
      */
-    @Bean(name = {"activeMQQueue", "defJmsDst"})
+    @Bean(name = {"activeMQQueue"})
     public Queue activeMQQueue() {
         return new ActiveMQQueue(queueName);
     }
@@ -83,7 +92,7 @@ public class ActiveMQConfig {
      *
      * @return
      */
-    @Bean(name = {"activeMQTopic"})
+    @Bean(name = {"activeMQTopic", "defJmsDst"})
     public Topic activeMQTopic() {
         return new ActiveMQTopic(topicName);
     }
@@ -107,6 +116,30 @@ public class ActiveMQConfig {
 
         return jmsTemplate;
 
+    }
+
+    @Bean
+    public MyJmsMessageListener myJmsMessageListener() {
+        return new MyJmsMessageListener();
+    }
+
+    @Bean
+    public MessageListenerContainer msgListenerContainer(@Qualifier("MyActiveMQCF") ConnectionFactory cf, @Qualifier("defJmsDst") Destination destination, @Qualifier("myJmsMessageListener") Object messageListener) {
+
+        DefaultMessageListenerContainer messageListenerContainer = new DefaultMessageListenerContainer();
+
+        messageListenerContainer.setMessageListener(messageListener);
+        messageListenerContainer.setConnectionFactory(cf);
+        messageListenerContainer.setDestination(destination);
+
+        messageListenerContainer.setClientId("wangxglalala");
+        messageListenerContainer.setSubscriptionDurable(true);
+        messageListenerContainer.setSubscriptionName("hey,jude");
+
+
+
+
+        return messageListenerContainer;
     }
 
 

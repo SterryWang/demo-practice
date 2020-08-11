@@ -79,8 +79,8 @@ public class ActiveMQTests {
      * 使用jmsTemplatex先转换对象为msg,再发送
      */
     @Test
-    public void testSendToTopic() {
-        Employee e = new Employee();
+    public void testSendToTopic() throws InterruptedException {
+       /* Employee e = new Employee();
         e.setId(1);
         e.setName("小白");
         e.setAge(18);
@@ -92,7 +92,9 @@ public class ActiveMQTests {
                 // return session.createObjectMessage(e);
                 return session.createTextMessage("你好，这是发往TOPIC的文本信息！");
             }
-        });
+        });*/
+
+        Thread.currentThread().sleep(60000);
 
         //发送主题型目的地的正确写法
         //第二种发送方式，常用，使用jmsTemplate内部消息转换器将对象转换成message再发送
