@@ -66,8 +66,14 @@ public class ActiveMQConfig {
 
         }
         ActiveMQPrefetchPolicy  prefetchPolicy  =  new ActiveMQPrefetchPolicy();
-        prefetchPolicy.setQueuePrefetch(1);
+
+        //设置PrefetchPolicy
+        prefetchPolicy.setQueuePrefetch(0);
+        prefetchPolicy.setDurableTopicPrefetch(1);
+        prefetchPolicy.setTopicPrefetch(1);
         connectionFactory.setPrefetchPolicy(prefetchPolicy);
+
+
 
 
 
@@ -109,6 +115,7 @@ public class ActiveMQConfig {
         JmsTemplate jmsTemplate = new JmsTemplate(connectionFactory);
         //设置默认的目的地，即使设置了默认目的地，使用JmsTemplate发送消息时依然可以指定目的地
         jmsTemplate.setDefaultDestination(dst);
+        jmsTemplate.setSessionTransacted(true);
 
         //是否使用订阅模式，当目的地为字符串形式时，jmstemplate将默认发送或者接收到主题类型的目的地
         // jmsTemplate.setPubSubDomain(true);
@@ -127,14 +134,23 @@ public class ActiveMQConfig {
     public MessageListenerContainer msgListenerContainer(@Qualifier("MyActiveMQCF") ConnectionFactory cf, @Qualifier("defJmsDst") Destination destination, @Qualifier("myJmsMessageListener") Object messageListener) {
 
         DefaultMessageListenerContainer messageListenerContainer = new DefaultMessageListenerContainer();
-
+        //注入消息监听器
         messageListenerContainer.setMessageListener(messageListener);
+        //注入连接工厂
         messageListenerContainer.setConnectionFactory(cf);
+        //设置消息目的地
         messageListenerContainer.setDestination(destination);
 
+        //设置持久化订阅，非订阅模式其实无需设置
         messageListenerContainer.setClientId("wangxglalala");
         messageListenerContainer.setSubscriptionDurable(true);
-        messageListenerContainer.setSubscriptionName("hey,jude");
+       // messageListenerContainer.setSubscriptionName("hey,jude");
+
+
+        //开启会话事务
+        //messageListenerContainer.setSessionTransacted(true);
+
+
 
 
 

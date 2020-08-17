@@ -3,6 +3,7 @@ package com.example.demo.message.tests;
 
 import com.example.demo.DemoApplication;
 import com.example.demo.entity.Employee;
+import com.example.demo.message.IEmployMsgService;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.slf4j.Logger;
@@ -11,6 +12,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jms.core.JmsOperations;
 import org.springframework.jms.core.MessageCreator;
 import org.springframework.test.context.junit4.SpringRunner;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import javax.annotation.Resource;
 import javax.jms.*;
@@ -32,6 +34,10 @@ public class ActiveMQTests {
 
     @Resource
     private Topic jmsTopic;
+
+
+    @Resource
+    private IEmployMsgService  employMsgService;
 
 
     private static Logger log = LoggerFactory.getLogger(ActiveMQTests.class);
@@ -80,7 +86,7 @@ public class ActiveMQTests {
      */
     @Test
     public void testSendToTopic() throws InterruptedException {
-       /* Employee e = new Employee();
+        Employee e = new Employee();
         e.setId(1);
         e.setName("小白");
         e.setAge(18);
@@ -92,7 +98,7 @@ public class ActiveMQTests {
                 // return session.createObjectMessage(e);
                 return session.createTextMessage("你好，这是发往TOPIC的文本信息！");
             }
-        });*/
+        });
 
         Thread.currentThread().sleep(60000);
 
@@ -135,6 +141,29 @@ public class ActiveMQTests {
 
         bufferedWriter.write("接收到的MESSAGE类型为：" + msg.getClass());
         bufferedWriter.close();*/
+    }
+
+
+    /**
+     * 测试jms事务
+     */
+    @Test
+    public void testTransaction(){
+
+        Employee e = new Employee();
+        e.setId(1);
+        e.setName("小白");
+        e.setAge(18);
+        //这种写法会默认目的地类型是队列而不是主题
+        log.info("开始发送信息到queue了。。。");
+        try {
+            employMsgService.sendEmployeeInfo(e,jmsQueue);
+        } catch (Exception ex) {
+
+            log.error("消息发送失败，请检查事务是否已经回滚！",ex);
+        }
+
+
     }
 
 

@@ -165,11 +165,11 @@ SPRING DATA REDIS 准备了一下集中客户端实现提供了连接工厂
 
 要实现redis缓存 ，我们需要以下基础设施，[代码链接](src/main/java/com/example/demo/redis/RedisConfig.java)：
 
-- 连接工厂 connectionFactory（需要注入连接池配置）
+- 连接工厂 **==connectionFactory==**（需要注入连接池配置）
 
-- 模板redisTemplate(需要注入连接工厂；redis缓存模式下redisTemplate非必要,它是用于直接操作redis存储的)
+- 模板**==redisTemplate==**(需要注入连接工厂；redis缓存模式下redisTemplate非必要,它是用于直接操作redis存储的)
 
-- redis缓存管理器
+- ==**redis缓存管理器**==
 
   其实对于连接工厂和redis模板，SPRING  DATA REDIS 是有自动装配的，但我们还是希望自己来配置这些组件，为了避免冲突，我们在启动类中关闭了这些组件的自动装配：
 
@@ -334,7 +334,7 @@ public JedisPoolConfig jedisPoolConfig(){
 
    关于redis事务的机制，我们不表了。但是它的应用和实现我们会在下一节讲述。
 
-#### 3.3 spring data redis缓存应用
+#### 3.3 spring data redis缓存的应用
 
 在SPRING CACHE一章中，我们说了会把redis缓存独立出来单独说下，于是就有了本章内容。但是redis缓存管理器本质上还是继承自`CacheManager`接口的，同其他类型的缓存一样在设计上归属同一层。为了**==方便查看，我们还是把redisCacheManager放到了`RedisConfig.java`,而没有放到`CacheConfig`中==**，并在类上开启了缓存支持`@EnableCaching`.但是测试类，**我还是放回到了[Cache的测试类](src/test/java/com/example/demo/springcache/tests/SpringCacheTests.java)中：**
 
@@ -841,9 +841,597 @@ public class ActiveMQTests {
 
 ![image-20200807153708854](https://raw.githubusercontent.com/SterryWang/picsbed/master/img/20200807153711.png)
 
-​		SPRING的JMS消息监听原理相同。
+​		SPRING的JMS消息监听原理同上，实现消息监听的核心组件有三：
+
+- 连接工厂
+
+- 消息监听器
+
+- 消息监听器容器，依赖连接工厂和消息监听器
+
+  ​	创建消息监听器的方式有两种
+
+1. 实现`javax.jms.MessageListener`接口
+
+2. 使用注解将普通pojo类注册为消息监听器
+
+   
+
+   在此之前，我们先讲述一下SPRING JMS的几种种消息监听器，SPRING提供的监听器接口或者实现类都在两个package:
+
+   `org.springframework.jms.listener`
+
+   `org.springframework.jms.listener.adapter`
+
+   
+
+   把他们的类图画一下（提出了一些无关紧要的类；为了便于理解，类图中还添加了javax.jms.MessageListener）
+
+   ![image-20200817111943393](https://raw.githubusercontent.com/SterryWang/picsbed/master/img/20200817111946.png)
+
+   1. **MessageListener**接口
+
+      MessageListener是最原始的消息监听器，它是JMS规范中定义的一个接口。其中定义了一个用于处理接收到的消息的onMessage方法，该方法只接收一个Message参数。
+
+   2. **SessionAwareMessageListener接口**
+
+      SessionAwareMessageListener是Spring为我们提供的，它不是标准的JMS MessageListener。MessageListener的设计只是纯粹用来接收消息的，假如我们在使用MessageListener处理接收到的消息时我们需要发送一个消息通知对方我们已经收到这个消息了，那么这个时候我们就需要在代码里面去重新获取一个Connection或Session。SessionAwareMessageListener的设计就是为了方便我们在接收到消息后发送一个回复的消息，它同样为我们提供了一个处理接收到的消息的onMessage方法，但是这个方法可以同时接收两个参数，一个是表示当前接收到的消息Message，另一个就是可以用来发送消息的Session对象。先来看一段代码：
+
+      ```java
+      package com.tiantian.springintejms.listener;
+      
+      import javax.jms.Destination;
+      import javax.jms.JMSException;
+      import javax.jms.Message;
+      import javax.jms.MessageProducer;
+      import javax.jms.Session;
+      import javax.jms.TextMessage;
+      
+      import org.springframework.jms.listener.SessionAwareMessageListener;
+      
+      public class ConsumerSessionAwareMessageListener implements
+              SessionAwareMessageListener<TextMessage> {
+      
+          private Destination destination;
+      
+          public void onMessage(TextMessage message, Session session) throws JMSException {
+              System.out.println("收到一条消息");
+              System.out.println("消息内容是：" + message.getText());
+              MessageProducer producer = session.createProducer(destination);
+              Message textMessage = session.createTextMessage("ConsumerSessionAwareMessageListener。。。");
+              producer.send(textMessage);
+          }
+      
+          public Destination getDestination() {
+              returndestination;
+          }
+      
+          public void setDestination(Destination destination) {
+              this.destination = destination;
+          }
+      
+      }
+      
+      ```
+
+      
+
+   3. **MessageListenerAdapter**
+
+      如上方类图所示，它是Spring提供的一个实现了MessageListener接口和SessionAwareMessageListener接口的实现类，其作用为：
+
+      它的主要作用是将接收到的消息进行类型转换，然后通过反射的形式把它交给一个普通的Java类进行处理。并且还可以回复broker确认信息。我们可以简单分析源码：
+
+      ```java
+      @Override
+      @SuppressWarnings("unchecked")
+      public void onMessage(Message message, @Nullable Session session) throws JMSException {
+         // Check whether the delegate is a MessageListener impl itself.
+         // In that case, the adapter will simply act as a pass-through.
+         Object delegate = getDelegate();
+         if (delegate != this) {
+            if (delegate instanceof SessionAwareMessageListener) {
+               Assert.state(session != null, "Session is required for SessionAwareMessageListener");
+               ((SessionAwareMessageListener<Message>) delegate).onMessage(message, session);
+               return;
+            }
+            if (delegate instanceof MessageListener) {
+               ((MessageListener) delegate).onMessage(message);
+               return;
+            }
+         }
+      
+         // Regular case: find a handler method reflectively.
+         Object convertedMessage = extractMessage(message);
+         String methodName = getListenerMethodName(message, convertedMessage);
+      
+         // Invoke the handler method with appropriate arguments.
+         Object[] listenerArguments = buildListenerArguments(convertedMessage);
+         Object result = invokeListenerMethod(methodName, listenerArguments);
+         if (result != null) {
+            handleResult(result, message, session);
+         }
+         else {
+            logger.trace("No result object given - no result to handle");
+         }
+      }
+      ```
+
+      这段代码结合注释看还是非常清晰的，这里的delegate，就是我们自己编写的listener，该adapter会判断
+
+      delegate是否为SessionAwareMessageListener或者MessageListener的实现类，并调用他们各自的接口onMessage()方法来处理消息，从而实现消息监听。更常见的情形，是我们自定义的pojolistener并没有实现两个接口，那么代码中是通过`invokeListenerMethod()`这个方法来调用pojolistener的监听器方法的。点开`handleResult(result, message, session)`方法，我们可以发现它会返回响应信息给broker(在其继承的抽象类：org.springframework.jms.listener.adapter.AbstractAdaptableMessageListener#handleResult):
+
+      ```java
+      /**
+       * Handle the given result object returned from the listener method,
+       * sending a response message back.
+       * @param result the result object to handle (never {@code null})
+       * @param request the original request message
+       * @param session the JMS Session to operate on (may be {@code null})
+       * @throws ReplyFailureException if the response message could not be sent
+       * @see #buildMessage
+       * @see #postProcessResponse
+       * @see #getResponseDestination
+       * @see #sendResponse
+       */
+      protected void handleResult(Object result, Message request, @Nullable Session session) {
+         if (session != null) {
+            if (logger.isDebugEnabled()) {
+               logger.debug("Listener method returned result [" + result +
+                     "] - generating response message for it");
+            }
+            try {
+               Message response = buildMessage(session, result);
+               postProcessResponse(request, response);
+               Destination destination = getResponseDestination(request, response, session, result);
+               sendResponse(session, destination, response);
+            }
+            catch (Exception ex) {
+               throw new ReplyFailureException("Failed to send reply with payload [" + result + "]", ex);
+            }
+         }
+      
+         else {
+            // No JMS Session available
+            if (logger.isWarnEnabled()) {
+               logger.warn("Listener method returned result [" + result +
+                     "]: not generating response message for it because of no JMS Session given");
+            }
+         }
+      }
+      ```
+
+   4. **MessagingMessageListenerAdapter**
+
+      从类图中可以看出，同样继承自 AbstractAdaptableMessageListener，实现了MessageListener, SessionAwareMessageListener两个接口，是SPRING 4.1 以后新添加的。[在3.2.4.3](#3.2.4.3 jms消息监听（二）)小节中，我所使用的PojoListener 这种注解式的监听方式，就是需要借由这个类来实现，我们在broker一侧可以观察到这一点：
+
+      ![image-20200817141220862](https://raw.githubusercontent.com/SterryWang/picsbed/master/img/20200817141231.png)
+
+      使用上我觉得它的功能和MessageListenerAdapter的功能类似，这里不再多花时间去详细剖析它了。
+
+      附参考：
+
+      [Spring JMS---三种消息监听器](https://blog.csdn.net/u012881904/article/details/51388456)
+
+      
+
+##### 3.2.4.2 jms消息监听（一）
+
+我们先看第一种实现方式：
+
+[消息监听器实现类](src/main/java/com/example/demo/message/MyJmsMessageListener.java)：
+
+```java
+package com.example.demo.message;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import javax.jms.*;
+
+
+/**
+ * 一个实现了MessageListener接口的监听器
+ */
+public class MyJmsMessageListener implements MessageListener {
+    private static Logger log = LoggerFactory.getLogger(MyJmsMessageListener.class);
+
+    @Override
+    public void onMessage(Message message) {
+
+        log.info("接收到的MESSAGE类型为：{}", message.getClass());
+        if (message instanceof TextMessage) {
+
+            try {
+                log.info("接收到的信息为：{}", ((TextMessage) message).getText());
+            } catch (JMSException e) {
+                e.printStackTrace();
+            }
+        } else if (message instanceof ObjectMessage) {
+            try {
+                log.info("接收到的对象为：{}", ((ObjectMessage) message).getObject());
+            } catch (JMSException e) {
+                e.printStackTrace();
+            }
+        } else {
+            log.info("接收的信息为：{}", message);
+        }
+
+    }
+}
+```
+
+该类实现了MessageListener接口，并重写了onMessage()方法，消息会直接通过入参送进来，我们可以在方法内处理消息，[前文3.2.3](#3.2.3.2 发送案例)小节提到的消息转换器把消息java对象化等等。
+
+下一步，我们把消息监听器放入消息监听器容器里，[参见ActiveMQConfig.java](src/main/java/com/example/demo/message/ActiveMQConfig.java)：
+
+```java
+@Bean
+public MyJmsMessageListener myJmsMessageListener() {
+    return new MyJmsMessageListener();
+}
+
+@Bean
+public MessageListenerContainer msgListenerContainer(@Qualifier("MyActiveMQCF") ConnectionFactory cf, @Qualifier("defJmsDst") Destination destination, @Qualifier("myJmsMessageListener") Object messageListener) {
+
+    DefaultMessageListenerContainer messageListenerContainer = new DefaultMessageListenerContainer();
+
+       //注入消息监听器
+        messageListenerContainer.setMessageListener(messageListener);
+        //注入连接工厂
+        messageListenerContainer.setConnectionFactory(cf);
+        //设置消息目的地
+        messageListenerContainer.setDestination(destination);
+
+        //设置持久化订阅，非订阅模式其实无需设置
+        messageListenerContainer.setClientId("wangxglalala");
+        messageListenerContainer.setSubscriptionDurable(true);
+        messageListenerContainer.setSubscriptionName("hey,jude");
 
 
 
 
 
+    return messageListenerContainer;
+}
+```
+
+注意到我们使用的是` DefaultMessageListenerContainer`作为监听器容器，并且要设置好它的各项关键属性，说明在代码注释里都已经标明了。
+
+测试流程就比较简单了，应用启动后会开启监听，我们往队列或者主题里发送消息，就可以快速监听到了。
+
+##### 3.2.4.3 jms消息监听（二）
+
+这小节讲述第二种消息监听的实现方式：使用注解将普通pojo类注册为消息监听器
+
+这种方法下我们无需实现`MessageListener`接口，只要定义一个简单的pojo类，[通过注解把它声明为监听器](src/main/java/com/example/demo/message/PojoListener.java)：
+
+```java
+package com.example.demo.message;
+
+
+import com.example.demo.entity.Employee;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.jms.annotation.JmsListener;
+import org.springframework.stereotype.Component;
+
+import javax.jms.Message;
+
+/**
+ * 不实现messageListener接口的监听器
+ */
+@Component
+public class PojoListener {
+
+    private static Logger log = LoggerFactory.getLogger(PojoListener.class);
+
+
+    @JmsListener(containerFactory = "pojoJmsListenerContainer", destination = "jms.topic")
+    public void receiveMsg(Message msg) {
+        log.info("pojolistener 接收到消息:{}", msg);
+        log.info("延时中。。。");
+        try {
+            Thread.sleep(60000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        log.info("延时完成，该则消息处理结束！");
+    }
+
+  /* @JmsListener(containerFactory = "myJmsListenerContainer", destination = "jms.topic")
+    public void receiveMsg(Employee e) {
+        log.info("pojolistener 接收到消息:{}" , e);
+    }*/
+}
+```
+
+第一，把pojo通过`@Component`注解实例化，第二，在方法上添加`JmsListener`注解，并说明容器的beanid,消息目的地。最后，其实我们可以直接在方法上入参使用具体的pojo类来接收信息，spring 会自动把消息转换成该对象送入，就是我们注解掉的这部分代码。
+
+然后我们看下具体的监听器容器配置：[JmsReceiverConfig](src/main/java/com/example/demo/message/JmsReceiverConfig.java)
+
+```java
+package com.example.demo.message;
+
+
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.jms.annotation.EnableJms;
+import org.springframework.jms.config.DefaultJmsListenerContainerFactory;
+import org.springframework.jms.config.JmsListenerContainerFactory;
+import org.springframework.jms.connection.CachingConnectionFactory;
+
+import javax.jms.ConnectionFactory;
+
+@Configuration
+@EnableJms
+public class JmsReceiverConfig {
+
+    @Bean
+    public JmsListenerContainerFactory pojoJmsListenerContainer(@Qualifier("consumerCachingConnectionFactory") ConnectionFactory cf) {
+        DefaultJmsListenerContainerFactory factory = new DefaultJmsListenerContainerFactory();
+        //注入连接工厂
+        factory.setConnectionFactory(cf);
+        //设置默认域为订阅模式
+        factory.setPubSubDomain(true);
+
+        //设置持久化订阅，如果consumerCachingConnectionFactory()中设置了client
+        // factory.setClientId("pojolistenercontainer");
+        factory.setSubscriptionDurable(true);
+
+        //DestinationResolver有默认值 DynamicDestinationResolver,所以无需设置
+        //factory.setDestinationResolver(destinationResolver());
+
+        //设置事务
+        // factory.setSessionTransacted(true);
+        //开启并发,也就是设置多消费者，它和持久化订阅是冲突的，因为持久化订阅要求clientID唯一
+        // factory.setConcurrency("2");
+
+        //每个线程处理n个消息后使用新线程，可以不设置
+        // factory.setMaxMessagesPerTask(2);
+
+
+        return factory;
+
+    }
+
+
+    @Bean
+    public ConnectionFactory consumerCachingConnectionFactory(ConnectionFactory cf) {
+        CachingConnectionFactory ccf = new CachingConnectionFactory(cf);
+        //设置会话缓存数量，如果监听器容器开启了并发，可以提高会话缓存数量来提高效率
+        ccf.setSessionCacheSize(50);
+        //持久化订阅需要设置clientID,
+        ccf.setClientId("lalala");
+
+        return ccf;
+
+    }
+
+
+}
+```
+
+`consumerCachingConnectionFactory(ConnectionFactory cf)`方法通过入参注入了前文的`ActiveMQConnectionFactory`，并完成了`CachingConnectionFactory`连接工厂的实例化，它其实是在底层的连接工厂上包了一层，该工厂类继承了`SingleConnectionFactory`，该工厂的特点为它只有一个工厂连接，并且可以通过缓存Session 对象，以及Consumer和Producer对象，从而避免了传统监听方式下，反复创建Connection,Session等对象造成的资源消耗。
+
+因为我们在上面的容器里开启了持久化订阅，那么久势必要设置统一的ClientID,一个ClientID只能对应一个连接，在这里我们只能设置`CachingConnectionFactory`的ClientID，如果设置上方容器的ClientID是会报错的。
+
+
+
+监听器容器我们是通过容器的工厂类`DefaultJmsListenerContainerFactory`来生成的，`factory.setConcurrency("2")`这步是设置监听器并发的，也就是多消费者，当容器使用了持久化订阅的时候，该容器是应该关掉并发的（多消费者），因为持久化订阅时一个容器里只能有一个消费者；但是但我们监听的是队列的时候，就不存在持久化订阅的说法，为了加快处理速度，我们就可以开启并发（同时注解掉clientID）。其他的一些关键参数的说明，参照代码注释即可。以上都测试过的。
+
+**==关于持久化订阅==**
+
+持久订阅和非持久订阅是针对Topic而言的，不是针对Queue的。在持久化订阅模式下，
+
+- 生产者在不停地生产消息，此时若没有人订阅，消息直接废弃（启动Producer）
+- 消费者1启动，无法接收到之前Producer生产的消息，只能接收到当前的消息（启动Consumer1）
+- 消费者2启动，也无法接收之前Producer生产的消息，只能接收到当前的消息（启动Consumer2）
+- 中断消费者2，消费者1继续接收消息，消费者2无法接收消息（停止Consumer2）
+- 启动消费者2，消费者1继续接收消息，消费者2可以接收到之前停止后丢失的消息，并可以继续接收当前消息（启动Consumer2）
+- ActiveMQ是通过ClientID判断消息是否已经发给连接点，若消费者的ClientID相同，那么只会被某一个消费者接收到消息，而另外一个会报错
+- 与非持久订阅模式的区别仅为设置了ClinetID及创建消费者使用createDurableSubscriber方法
+
+和非持久订阅比较，一个典型的特征是，非持久化订阅者无法接收离线消息，就是客户端离线后再连上来，无法接收到离线期间发送到topic的消息。相关参考：
+
+[持久化订阅和非持久订阅对比](https://www.cnblogs.com/hapjin/p/5644402.html)
+
+[TOPIC模式](https://blog.csdn.net/kedadiannao220/article/details/78917340)
+
+
+
+==**关于PrefetchPolicy**==
+
+**ActiveMQ使用预取极限（prefetch limit**）来限制一次性分发给单个消费者的最大消息个数。消费者则使用预取极限（prefetch limit）来设置其消息缓冲区的大小。具体的机制我们不去研究，我们说下它的现象，当consumer端设置prefetch个数为1时，客户端手上处理着一条消息，同时客户端的消息缓冲区里还排队放着一条消息。但是这条消息虽然留在了客户端的缓冲区里，但在ActiveMQ这里，它并没有出列，依然在队列算在队列中，具体表现为有两个consumer，消费同一个队列，设置适当的启动时间间隔和消息处理间隔，你就会发现他们处理消息的过程为：consumer1处理1、2则消息，consumer2处理3、4 则消息，如果consumer1先一步处理完了，就会继续处理5、6则消息，依次进行。
+
+既然这是ActiveMQ的特性，那么我们就需要在ActiveMQ的相关属性上设置，有两种方法，可以再url上设置，也可以在ActiveMQ的专用[工厂类上设置](src/main/java/com/example/demo/message/ActiveMQConfig.java)：
+
+```java
+/**
+ * ActiveMQ连接工厂
+ *
+ * @param properties
+ * @return
+ */
+@Bean("MyActiveMQCF")
+public ActiveMQConnectionFactory jmsConnectionFactory(ActiveMQProperties properties) {
+    ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory();
+
+
+    //packages的设置是sonar提醒的，是考虑安全性的问题
+    ActiveMQProperties.Packages packages = properties.getPackages();
+    if (packages.getTrustAll() != null) {
+        connectionFactory.setTrustAllPackages(packages.getTrustAll());
+    }
+    /*if (!packages.getTrusted().isEmpty()) {
+        connectionFactory.setTrustedPackages(packages.getTrusted());
+    }*/
+    connectionFactory.setTrustAllPackages(true);
+    //设置消息代理服务器的地址，其实还可以用户密码，超时时间等，不赘述
+    if (properties.getBrokerUrl() != null) {
+        connectionFactory.setBrokerURL(properties.getBrokerUrl());
+    }
+    if (properties.getUser() != null && properties.getPassword() != null) {
+        connectionFactory.setUserName(properties.getUser());
+        connectionFactory.setPassword(properties.getPassword());
+
+
+    }
+    ActiveMQPrefetchPolicy  prefetchPolicy  =  new ActiveMQPrefetchPolicy();
+
+    //设置PrefetchPolicy
+    prefetchPolicy.setQueuePrefetch(0);
+    prefetchPolicy.setDurableTopicPrefetch(1);
+    prefetchPolicy.setTopicPrefetch(1);
+    connectionFactory.setPrefetchPolicy(prefetchPolicy);
+
+
+
+
+
+
+
+
+    return connectionFactory;
+}
+```
+
+我们在最后几行设置了prefetch policy，可以分别设置queue 和  topic的prefetch个数。
+
+==**关于JMS事务**==
+
+如果消息的发送或者接收过程也可以是一个事务，举个例子，开启事务后，发送过程的原子方法出现异常，我们可以回滚消息发送，从broker一侧观察到的就是，broker并没有接收到该消息；同样的，在接收端，如果接收消息出现错误，我们也可以通过回滚消息接收，从broker一侧看到的现象是，该消息并没有出列。
+
+比如以jmsTemplate为例，我们使用@Transcational注解，然后认为抛出异常，[代码链接](src/main/java/com/example/demo/message/EmployeeMsgServiceImpl.java)
+
+```java
+package com.example.demo.message;
+
+import com.example.demo.entity.Employee;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.jms.JmsException;
+import org.springframework.jms.core.JmsOperations;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+import javax.jms.Destination;
+import javax.jms.Message;
+
+/**
+ * @author wangxg3
+ */
+
+@Component
+public class EmployeeMsgServiceImpl  implements   IEmployMsgService{
+    private  static Logger  log   = LoggerFactory.getLogger(EmployeeMsgServiceImpl.class);
+
+    JmsOperations jmsOperations;
+
+    public  EmployeeMsgServiceImpl(@Qualifier("MyJmsTemplate") JmsOperations  jmsOperations){
+        this.jmsOperations = jmsOperations;
+    }
+    @Override
+    @Transactional(rollbackFor = {Exception.class})
+    public void sendEmployeeInfo(Employee e, Destination dst) {
+        jmsOperations.convertAndSend(dst,e);
+        if(true){
+            throw new  RuntimeException("故意抛出的异常，测试jms事务！");
+        }
+    }
+
+    @Override
+    @Transactional
+    public String recvMsg(Destination dst) {
+        Message msg;
+        try {
+           msg =jmsOperations.receive(dst);
+           log.info("接收到的信息为：{}",msg);
+
+        } catch (Exception ex) {
+           throw new RuntimeException("接收并转换消息失败！",ex);
+        }
+        if(true){
+
+            throw new  RuntimeException("故意抛出的异常，测试jms接收消息的事务！");
+
+        }
+        return msg.toString();
+
+    }
+}
+```
+
+然后在controller中添加测试入口:[DemoController.java](src/main/java/com/example/demo/controller/DemoController.java)
+
+```java
+@GetMapping("/jms/testTransaction")
+public String testTransaction() {
+    Employee e = new Employee();
+    e.setId(1);
+    e.setName("小白");
+    e.setAge(18);
+    //这种写法会默认目的地类型是队列而不是主题
+    log.info("开始发送信息到queue了。。。");
+    try {
+        employMsgService.sendEmployeeInfo(e, jmsQueue);
+    } catch (Exception ex) {
+
+        log.error("消息发送失败，请检查事务是否已经回滚！", ex);
+        return "消息发送失败，请检查事务是否已经回滚！";
+    }
+    return null;
+
+}
+@GetMapping("/jms/testTransactionRecv")
+public String testTransactionRecv() {
+
+    //这种写法会默认目的地类型是队列而不是主题
+    log.info("开始从queue中接收信息了。。。");
+    try {
+       employMsgService.recvMsg(jmsQueue);
+    } catch (Exception ex) {
+
+        log.error("消息接收失败，请检查事务是否已经回滚！", ex);
+        return "消息接收失败，请检查事务是否已经回滚！";
+    }
+    return null;
+
+}
+```
+
+测试结果满足我们前文的结论。不过，当我在监听器的方式时，比如：
+
+```java
+@Bean
+public JmsListenerContainerFactory pojoJmsListenerContainer(@Qualifier("consumerCachingConnectionFactory") ConnectionFactory cf) {
+    DefaultJmsListenerContainerFactory factory = new DefaultJmsListenerContainerFactory();
+    //注入连接工厂
+    factory.setConnectionFactory(cf);
+    //设置默认域为订阅模式
+    factory.setPubSubDomain(false);
+
+    //设置持久化订阅，需要consumerCachingConnectionFactory()设置clientID;
+    // factory.setClientId("pojolistenercontainer");
+    factory.setSubscriptionDurable(true);
+
+    //DestinationResolver有默认值 DynamicDestinationResolver,所以无需设置
+    //factory.setDestinationResolver(destinationResolver());
+
+    //设置事务
+     factory.setSessionTransacted(true);
+    //开启并发,也就是设置多消费者，它和持久化订阅是冲突的，因为持久化订阅要求clientID唯一
+    //factory.setConcurrency("2");
+
+    //每个线程处理n个消息后使用新线程，可以不设置
+    // factory.setMaxMessagesPerTask(2);
+
+
+    return factory;
+
+}
+```
+
+虽然我们 通过factory.setSessionTransacted(true)开启了事务，并且在listener的onMessage()方法中故意抛出了异常，而且也添加了@Transaction注解，可却并不能像前文jmsTemplate那样的事务回滚，也许是我这样的配置方法不对，时间有限，只能留待以后去探讨了。

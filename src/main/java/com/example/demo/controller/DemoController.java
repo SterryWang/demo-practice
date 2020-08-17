@@ -1,6 +1,7 @@
 package com.example.demo.controller;
 
 import com.example.demo.entity.Employee;
+import com.example.demo.message.IEmployMsgService;
 import com.example.demo.springcache.EmployeeCachedDao;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,6 +37,10 @@ public class DemoController {
 
     @Resource
     private EmployeeCachedDao employeeCachedDao;
+
+
+    @Resource
+    private IEmployMsgService employMsgService;
 
     @GetMapping("/hello")
     public String testController() {
@@ -73,25 +78,25 @@ public class DemoController {
         e.setAge(18);
         //这种写法会默认目的地类型是队列而不是主题
         log.info("开始发送topic信息了。。。");
-        Destination  dst ;
-        if ("topic".equals(dstType)){
-        	dst = jmsTopic;
-		}else{
-        	dst = jmsQueue;
-		}
+        Destination dst;
+        if ("topic".equals(dstType)) {
+            dst = jmsTopic;
+        } else {
+            dst = jmsQueue;
+        }
         jmsTemplate.send(dst, new MessageCreator() {
             @Override
             public Message createMessage(Session session) throws JMSException {
-                 return session.createObjectMessage(e);
+                return session.createObjectMessage(e);
                 //return session.createTextMessage("你好，这是发往TOPIC的文本信息！");
             }
         });
 
 
-		return "发送完毕";
+        return "发送完毕";
     }
 
-	@GetMapping("/jms/sendStr")
+    @GetMapping("/jms/sendStr")
     public String sendStrToTopic() {
         Employee e = new Employee();
         e.setId(1);
@@ -103,7 +108,7 @@ public class DemoController {
         jmsTemplate.send("jms.topic", new MessageCreator() {
             @Override
             public Message createMessage(Session session) throws JMSException {
-               // return session.createObjectMessage(e);
+                // return session.createObjectMessage(e);
                 return session.createTextMessage("你好，这是发往TOPIC的文本信息！");
             }
         });
@@ -112,68 +117,102 @@ public class DemoController {
     }
 
 
-   @GetMapping("/jms/recvFromTopic")
-    public  String recvFromTopic(){
+    @GetMapping("/jms/recvFromTopic")
+    public String recvFromTopic() {
 
-		log.info("开始监听了。。。");
-		Message msg = jmsTemplate.receive(jmsTopic);
+        log.info("开始监听了。。。");
+        Message msg = jmsTemplate.receive(jmsTopic);
 
-		assert msg != null;
-		System.out.println("接收到的MESSAGE类型为：" + msg.getClass());
+        assert msg != null;
+        System.out.println("接收到的MESSAGE类型为：" + msg.getClass());
 
-		log.info("接收到的MESSAGE类型为：{}",msg.getClass());
-		if(msg  instanceof TextMessage)
-		{
+        log.info("接收到的MESSAGE类型为：{}", msg.getClass());
+        if (msg instanceof TextMessage) {
 
-			try {
-				log.info("接收到的信息为：{}",((TextMessage) msg).getText());
-				return ((TextMessage) msg).getText();
-			} catch (JMSException e) {
-				e.printStackTrace();
-			}
-		}else if(msg instanceof  ObjectMessage){
-			try {
-				log.info("接收到的对象为：{}",((ObjectMessage)msg).getObject());
-				return ((ObjectMessage)msg).getObject().toString();
-			} catch (JMSException e) {
-				e.printStackTrace();
-			}
-		}else {
-			log.info("接收的信息为：{}",msg);
-			return msg.toString();
-		}
-		return  null;
+            try {
+                log.info("接收到的信息为：{}", ((TextMessage) msg).getText());
+                return ((TextMessage) msg).getText();
+            } catch (JMSException e) {
+                e.printStackTrace();
+            }
+        } else if (msg instanceof ObjectMessage) {
+            try {
+                log.info("接收到的对象为：{}", ((ObjectMessage) msg).getObject());
+                return ((ObjectMessage) msg).getObject().toString();
+            } catch (JMSException e) {
+                e.printStackTrace();
+            }
+        } else {
+            log.info("接收的信息为：{}", msg);
+            return msg.toString();
+        }
+        return null;
 
-	}
-	@GetMapping("/jms/recvFromQueue")
-	public String recvFromQueue(){
-		log.info("开始监听了。。。");
-		Message msg = jmsTemplate.receive(jmsQueue);
+    }
 
-		assert msg != null;
-		System.out.println("接收到的MESSAGE类型为：" + msg.getClass());
+    @GetMapping("/jms/recvFromQueue")
+    public String recvFromQueue() {
+        log.info("开始监听了。。。");
+        Message msg = jmsTemplate.receive(jmsQueue);
 
-		log.info("接收到的MESSAGE类型为：{}",msg.getClass());
-		if(msg  instanceof TextMessage)
-		{
+        assert msg != null;
+        System.out.println("接收到的MESSAGE类型为：" + msg.getClass());
 
-			try {
-				log.info("接收到的信息为：{}",((TextMessage) msg).getText());
-				return ((TextMessage) msg).getText();
-			} catch (JMSException e) {
-				e.printStackTrace();
-			}
-		}else if(msg instanceof  ObjectMessage){
-			try {
-				log.info("接收到的对象为：{}",((ObjectMessage)msg).getObject());
-				return ((ObjectMessage)msg).getObject().toString();
-			} catch (JMSException e) {
-				e.printStackTrace();
-			}
-		}else {
-			log.info("接收的信息为：{}",msg);
-			return msg.toString();
-		}
-		return  null;
-	}
+        log.info("接收到的MESSAGE类型为：{}", msg.getClass());
+        if (msg instanceof TextMessage) {
+
+            try {
+                log.info("接收到的信息为：{}", ((TextMessage) msg).getText());
+                return ((TextMessage) msg).getText();
+            } catch (JMSException e) {
+                e.printStackTrace();
+            }
+        } else if (msg instanceof ObjectMessage) {
+            try {
+                log.info("接收到的对象为：{}", ((ObjectMessage) msg).getObject());
+                return ((ObjectMessage) msg).getObject().toString();
+            } catch (JMSException e) {
+                e.printStackTrace();
+            }
+        } else {
+            log.info("接收的信息为：{}", msg);
+            return msg.toString();
+        }
+        return null;
+    }
+
+    @GetMapping("/jms/testTransaction")
+    public String testTransaction() {
+        Employee e = new Employee();
+        e.setId(1);
+        e.setName("小白");
+        e.setAge(18);
+        //这种写法会默认目的地类型是队列而不是主题
+        log.info("开始发送信息到queue了。。。");
+        try {
+            employMsgService.sendEmployeeInfo(e, jmsQueue);
+        } catch (Exception ex) {
+
+            log.error("消息发送失败，请检查事务是否已经回滚！", ex);
+            return "消息发送失败，请检查事务是否已经回滚！";
+        }
+        return null;
+
+    }
+    @GetMapping("/jms/testTransactionRecv")
+    public String testTransactionRecv() {
+
+        //这种写法会默认目的地类型是队列而不是主题
+        log.info("开始从queue中接收信息了。。。");
+        try {
+           employMsgService.recvMsg(jmsQueue);
+        } catch (Exception ex) {
+
+            log.error("消息接收失败，请检查事务是否已经回滚！", ex);
+            return "消息接收失败，请检查事务是否已经回滚！";
+        }
+        return null;
+
+    }
+
 }

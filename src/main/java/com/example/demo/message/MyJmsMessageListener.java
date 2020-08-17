@@ -2,6 +2,7 @@ package com.example.demo.message;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.transaction.annotation.Transactional;
 
 import javax.jms.*;
 
@@ -13,9 +14,13 @@ public class MyJmsMessageListener implements MessageListener {
     private static Logger log = LoggerFactory.getLogger(MyJmsMessageListener.class);
 
     @Override
-    public void onMessage( Message message) {
+   // @Transactional(rollbackFor = {Exception.class,RuntimeException.class})
+    public void onMessage(Message message) {
+
+
 
         log.info("接收到的MESSAGE类型为：{}", message.getClass());
+
         if (message instanceof TextMessage) {
 
             try {
@@ -31,6 +36,9 @@ public class MyJmsMessageListener implements MessageListener {
             }
         } else {
             log.info("接收的信息为：{}", message);
+        }
+        if(true){
+            throw new RuntimeException("故意抛出异常，测试监听时的事务处理！");
         }
 
     }
