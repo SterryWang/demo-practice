@@ -857,7 +857,7 @@ public class ActiveMQTests {
 
    
 
-   在此之前，我们先讲述一下SPRING JMS的几种种消息监听器，SPRING提供的监听器接口或者实现类都在两个package:
+   在此之前，我们==**先讲述一下SPRING JMS的几种消息监听器**==，SPRING提供的监听器接口或者实现类都在两个package:
 
    `org.springframework.jms.listener`
 
@@ -865,7 +865,7 @@ public class ActiveMQTests {
 
    
 
-   把他们的类图画一下（提出了一些无关紧要的类；为了便于理解，类图中还添加了javax.jms.MessageListener）
+   把他们的类图画一下（剔除了一些无关紧要的类；为了便于理解，类图中还引入了javax.jms.MessageListener接口，其余都是SPRING的）
 
    ![image-20200817111943393](https://raw.githubusercontent.com/SterryWang/picsbed/master/img/20200817111946.png)
 
