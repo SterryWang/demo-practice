@@ -4,6 +4,8 @@ package com.example.demo.message.tests;
 import com.example.demo.DemoApplication;
 import com.example.demo.entity.Employee;
 import com.example.demo.message.IEmployMsgService;
+import com.example.demo.message.IMsgRpcService;
+import com.example.demo.message.IMsgRpcServiceClientCopy;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.slf4j.Logger;
@@ -29,7 +31,7 @@ public class ActiveMQTests {
     @Resource(name = "MyJmsTemplate")
     private JmsOperations jmsTemplate;
 
-    @Resource
+    @Resource(name="activeMQQueue")
     private Queue jmsQueue;
 
     @Resource
@@ -38,6 +40,18 @@ public class ActiveMQTests {
 
     @Resource
     private IEmployMsgService  employMsgService;
+
+
+
+
+  /*  @Resource
+    IMsgRpcService  jmsRpcClient;*/
+
+    /**
+     * 注入rpc客户端代理对象
+     */
+    @Resource
+    IMsgRpcServiceClientCopy jmsRpcClient;
 
 
     private static Logger log = LoggerFactory.getLogger(ActiveMQTests.class);
@@ -163,6 +177,21 @@ public class ActiveMQTests {
             log.error("消息发送失败，请检查事务是否已经回滚！",ex);
         }
 
+
+    }
+
+    @Test
+    public void TestJmsRpc(){
+        //服务端执行的结果为：向周杰伦问好
+      //  jmsRpcClient.sayHello("周杰伦");
+
+        //当客户端和服务端的方法名不一致的时候，远程RPC会失败的
+        jmsRpcClient.sayHelloCopy("周杰伦");
+        try {
+            Thread.sleep(60000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
 
     }
 

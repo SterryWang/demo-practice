@@ -29,7 +29,7 @@ public class DemoController {
     @Resource(name = "MyJmsTemplate")
     private JmsOperations jmsTemplate;
 
-    @Resource
+    @Resource(name = "activeMQQueue")
     private Queue jmsQueue;
 
     @Resource

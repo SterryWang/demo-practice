@@ -10,4 +10,6 @@ public interface IMsgRpcService {
      * @param name
      */
     void  sayHello(String  name);
+
+    void sayHelloCopy(String name);
 }

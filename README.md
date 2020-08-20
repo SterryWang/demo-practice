@@ -1221,7 +1221,7 @@ public class JmsReceiverConfig {
 
 监听器容器我们是通过容器的工厂类`DefaultJmsListenerContainerFactory`来生成的，`factory.setConcurrency("2")`这步是设置监听器并发的，也就是多消费者，当容器使用了持久化订阅的时候，该容器是应该关掉并发的（多消费者），因为持久化订阅时一个容器里只能有一个消费者；但是但我们监听的是队列的时候，就不存在持久化订阅的说法，为了加快处理速度，我们就可以开启并发（同时注解掉clientID）。其他的一些关键参数的说明，参照代码注释即可。以上都测试过的。
 
-**==关于持久化订阅==**
+==**关于持久化订阅**==
 
 持久订阅和非持久订阅是针对Topic而言的，不是针对Queue的。在持久化订阅模式下，
 
@@ -1435,3 +1435,361 @@ public JmsListenerContainerFactory pojoJmsListenerContainer(@Qualifier("consumer
 ```
 
 虽然我们 通过factory.setSessionTransacted(true)开启了事务，并且在listener的onMessage()方法中故意抛出了异常，而且也添加了@Transaction注解，可却并不能像前文jmsTemplate那样的事务回滚，也许是我这样的配置方法不对，时间有限，只能留待以后去探讨了。
+
+#### 3.2.5 基于JMS的RPC
+
+​		RPC(Remote Procedure Call)，远程过程调用。我们熟知的一种RPC服务，比如SOAP，客户端只要塞好请求头和请求体，然后在客户端端上执行方法A的调用（该方法在客户端无实现体），那么服务端对应的SOAP接口上的对应的方法A就会响应此接口，执行服务端业务逻辑，然后通过方法A返回结果。这样看，客户端只要执行API调用，API的实现过程放在服务端，这就是一个典型的RPC流程。
+
+​		基于JMS的RPC也是类似，只不过它是使用JMS作为传输通道来进行远程方法调用。不过由于JMS本身的异步消息特性，**==基于JMS的RPC是异步的而非同步==**，所以他的RPC调用时没有返回结果的，方法的返回是void。
+
+​		Spring 目前提供的基于JMS的RPC**==仅支持点对点消息（队列），==**而不支持订阅模式。Spring 提供的JMS 的RPC方案分为服务端和客户端两部分，我们分开来看。
+
+##### 3.2.5.1 服务端配置
+
+​		服务端有一个核心组件是JmsInvokerServiceExporter，顾名思义，就是一个导出JmsInvokerService(基于JMS的远程调用服务)的组件，它实现了`SessionAwareMessageListener`接口，所以本质上它是一个消息。我们直接看代码配置:
+
+[JmsRpcServiceServerConfig.java](src/main/java/com/example/demo/message/JmsRpcServiceServerConfig.java)
+
+```java
+package com.example.demo.message;
+
+
+import org.apache.activemq.command.ActiveMQQueue;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.jms.listener.DefaultMessageListenerContainer;
+import org.springframework.jms.remoting.JmsInvokerServiceExporter;
+
+import javax.jms.ConnectionFactory;
+import javax.jms.Destination;
+import javax.jms.Queue;
+
+/**
+ * @author wangxg3
+ */
+@Configuration
+public class JmsRpcServiceServerConfig {
+
+    /**
+     * 实例化消息目的地
+     *
+     * @return
+     */
+    @Bean
+    public Queue jmsRpcDst() {
+        return new ActiveMQQueue("jms.rpc.queue");
+    }
+
+    /**
+     * 实例化待导出的RPC服务
+     *
+     * @return
+     */
+    @Bean
+    public IMsgRpcService msgRpcService() {
+        return new MsgRpcServiceImpl();
+    }
+
+    /**
+     * 实例化JMS RPC服务 exporter
+     * 本质上也是一个消息监听器
+     *
+     * @param msgRpcService
+     * @param jmsRpcDst
+     * @return
+     */
+    @Bean
+    public JmsInvokerServiceExporter jmsInvokerServiceExporter(IMsgRpcService msgRpcService, Destination jmsRpcDst) {
+        JmsInvokerServiceExporter jmsInvokerServiceExporter = new JmsInvokerServiceExporter();
+        jmsInvokerServiceExporter.setService(msgRpcService);
+        jmsInvokerServiceExporter.setServiceInterface(IMsgRpcService.class);
+
+        return jmsInvokerServiceExporter;
+    }
+
+    /**
+     * 消息监听器容器
+     *
+     * @param cf
+     * @param jmsRpcDst
+     * @param jmsInvokerServiceExporter
+     * @return
+     */
+    @Bean
+    public DefaultMessageListenerContainer rpcMsgListenerContainer(@Qualifier("MyActiveMQCF") ConnectionFactory cf, Destination jmsRpcDst, JmsInvokerServiceExporter jmsInvokerServiceExporter) {
+        DefaultMessageListenerContainer container = new DefaultMessageListenerContainer();
+        container.setDestination(jmsRpcDst);
+        container.setConnectionFactory(cf);
+        container.setMessageListener(jmsInvokerServiceExporter);
+
+        return container;
+    }
+
+
+}
+```
+
+从配置中我们基本可以看出它所需要的基础组件：
+
+```java
+DefaultMessageListenerContainer  rpcMsgListenerContainer //监听器容器
+  -ConnectionFactory cf              //注入连接工厂
+  -Destination  jmsRpcDst           //jms监听目的地队列
+  -MessageListener jmsInvokerServiceExporter    //  jmsInvokerServiceExporter,RPC服务导出器
+     --Object service               //服务端业务层接口
+     --Class<?> interface           //服务端业务层实现类，远程调用的业务逻辑实现
+  
+```
+
+我们定义了`IMsgRpcService.java`作为服务端接口，`MsgRpcServiceImpl.java`作为业务接口的实现类，这些需要set进JmsInvokerServiceExporter，最后把JmsInvokerServiceExporter作为监听器注入到监听器容器中。需要注意的是，exporter里面仅需要执行接口和实现类，并没有指定方法的入口，这是不是说明可以把接口的所有方法都注册成RPC服务供调用方调用呢？我们将在后面3.2.5.3小节揭示这个猜测。附上服务端接口实现类的代码：
+
+
+
+附上服务端的接口和实现类代码
+
+##### 3.2.5.2 客户端配置
+
+​		客户端负责触发RPC调用过程，因为JMS是异步消息机制，所以客户端不会通过接口来接收返回结果（返回是void）。客户端配置如下：[JmsRpcClientConfig.java](src/main/java/com/example/demo/message/JmsRpcClientConfig.java)
+
+```java
+package com.example.demo.message;
+
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.jms.remoting.JmsInvokerProxyFactoryBean;
+
+import javax.jms.ConnectionFactory;
+import javax.jms.Queue;
+
+/**
+ * 基于jms的RPC服务的客户端配置
+ *
+ * @author wangxg3
+ */
+@Configuration
+public class JmsRpcClientConfig {
+    /**
+     * jms的Rpc调用的代理bean工厂
+     * 该工厂会通过代理技术，
+     * 实例化一个实现了接口{@link  JmsInvokerProxyFactoryBean#setServiceInterface(Class xInterface)} XInterface的代理类
+     *
+     * @param cf
+     * @param jmsRpcDst
+     * @return
+     */
+    @Bean
+    public JmsInvokerProxyFactoryBean jmsRpcClient(@Qualifier("MyActiveMQCF") ConnectionFactory cf, Queue jmsRpcDst) {
+        JmsInvokerProxyFactoryBean jmsInvokerProxyFactoryBean = new JmsInvokerProxyFactoryBean();
+        //注入工厂
+        jmsInvokerProxyFactoryBean.setConnectionFactory(cf);
+        //注入目标队列
+        jmsInvokerProxyFactoryBean.setQueue(jmsRpcDst);
+        //注入
+        //jmsInvokerProxyFactoryBean.setServiceInterface(IMsgRpcService.class);
+        jmsInvokerProxyFactoryBean.setServiceInterface(IMsgRpcServiceClientCopy.class);
+
+
+        return jmsInvokerProxyFactoryBean;
+
+    }
+
+
+}
+```
+
+通过分析代码可知客户端依赖的基础组件如下：
+
+```java
+JmsInvokerProxyFactoryBean jmsRpcClient      //rpc客户端调用代理工厂，可生成实现了设定接口的代理实现类，可能使用了动态代理技术
+	-ConnectionFactory  connectionFactory=cf  //连接工厂
+	-Queue  queue=jmsRpcDst                   //消息目的地队列
+	-Class<?> serverInterface=IMsgRpcServiceClientCopy.class   //动态代理类将要实现的接口
+```
+
+核心组件就是这个工厂类，它将在容器初始化的时候生成一个对象，该对象是通过动态代理技术实现了IMsgRpcServiceClientCopy.class接口，所以我们可以看成它是IMsgRpcServiceClientCopy.class的代理bean,代替它完成RPC调用。既然是远程RPC,实现都在服务端，那么客户端只要接口作为RPC调用入口，是不需要实现类的。需要指出的是，为了模拟客户端和服务端是分离部署的，特意在客户端定义了基于服务端RPC接口的一个副本：[IMsgRpcServiceClientCopy.java](src/main/java/com/example/demo/message/IMsgRpcServiceClientCopy.java)
+
+```java
+package com.example.demo.message;
+
+/**
+ * IMsgRpcService接口在客户端侧的副本
+ * @author wangxg3
+ */
+public interface IMsgRpcServiceClientCopy {
+    /**
+     * 定义一个不同于服务端接口方法名的方法
+     * @param name
+     */
+    void sayHelloCopy(String name);
+
+    /**
+     * 客户端的调用方法保持和服务端IMsgRpcService方法名一致
+     * @param name
+     */
+    void sayHello(String name);
+}
+```
+
+##### 3.2.5.3 测试
+
+直接看测试代码：[ActiveMQTests.java](src/test/java/com/example/demo/message/tests/ActiveMQTests.java)
+
+```java
+...
+  /*  @Resource
+    IMsgRpcService  jmsRpcClient;*/
+
+    /**
+     * 注入rpc客户端代理对象
+     */
+    @Resource
+    IMsgRpcServiceClientCopy jmsRpcClient;
+...
+
+
+ @Test
+    public void TestJmsRpc(){
+        //服务端执行的结果为：向周杰伦问好
+        jmsRpcClient.sayHello("周杰伦");
+
+        //当客户端和服务端的方法名不一致的时候，远程RPC会失败的
+        //jmsRpcClient.sayHelloCopy("周杰伦");
+        try {
+            Thread.sleep(60000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
+    }
+```
+
+
+
+我在上一小节通过JmsInvokerProxyFactoryBean 生成代理对象jmsRpcClient，且该对象实现了 IMsgRpcServiceClientCopy接口，所以我在单元测试中通过 IMsgRpcServiceClientCopy类型进行bean注入。然后再TestJmsRpc()中直接调用它的接口方法，实现了RPC调用，服务端显示的结果符合预期：
+
+![image-20200820155351712](https://raw.githubusercontent.com/SterryWang/picsbed/master/img/20200820155355.png)
+
+前面我说了，还在客户端的RPC接口里添加了sayHelloCopy()接口，我们把注释放开，测试下这个方法调用，最终结果是报错了，服务端找不到对应方法：
+
+```java
+org.springframework.remoting.RemoteInvocationFailureException: Invocation of method [public abstract void com.example.demo.message.IMsgRpcServiceClientCopy.sayHelloCopy(java.lang.String)] failed in JMS invoker remote service at queue [queue://jms.rpc.queue]; nested exception is java.lang.NoSuchMethodException: com.sun.proxy.$Proxy128.sayHelloCopy(java.lang.String)
+
+	at org.springframework.jms.remoting.JmsInvokerClientInterceptor.invoke(JmsInvokerClientInterceptor.java:217)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:186)
+	at org.springframework.aop.framework.JdkDynamicAopProxy.invoke(JdkDynamicAopProxy.java:212)
+	at com.sun.proxy.$Proxy127.sayHelloCopy(Unknown Source)
+	at com.example.demo.message.tests.ActiveMQTests.TestJmsRpc(ActiveMQTests.java:189)
+	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)
+	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)
+	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+	at org.springframework.test.context.junit4.statements.RunBeforeTestExecutionCallbacks.evaluate(RunBeforeTestExecutionCallbacks.java:74)
+	at org.springframework.test.context.junit4.statements.RunAfterTestExecutionCallbacks.evaluate(RunAfterTestExecutionCallbacks.java:84)
+	at org.springframework.test.context.junit4.statements.RunBeforeTestMethodCallbacks.evaluate(RunBeforeTestMethodCallbacks.java:75)
+	at org.springframework.test.context.junit4.statements.RunAfterTestMethodCallbacks.evaluate(RunAfterTestMethodCallbacks.java:86)
+	at org.springframework.test.context.junit4.statements.SpringRepeat.evaluate(SpringRepeat.java:84)
+	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)
+	at org.springframework.test.context.junit4.SpringJUnit4ClassRunner.runChild(SpringJUnit4ClassRunner.java:251)
+	at org.springframework.test.context.junit4.SpringJUnit4ClassRunner.runChild(SpringJUnit4ClassRunner.java:97)
+	at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)
+	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)
+	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:288)
+	at org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)
+	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:268)
+	at org.springframework.test.context.junit4.statements.RunBeforeTestClassCallbacks.evaluate(RunBeforeTestClassCallbacks.java:61)
+	at org.springframework.test.context.junit4.statements.RunAfterTestClassCallbacks.evaluate(RunAfterTestClassCallbacks.java:70)
+	at org.junit.runners.ParentRunner.run(ParentRunner.java:363)
+	at org.springframework.test.context.junit4.SpringJUnit4ClassRunner.run(SpringJUnit4ClassRunner.java:190)
+	at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
+	at com.intellij.junit4.JUnit4IdeaTestRunner.startRunnerWithArgs(JUnit4IdeaTestRunner.java:68)
+	at com.intellij.rt.junit.IdeaTestRunner$Repeater.startRunnerWithArgs(IdeaTestRunner.java:33)
+	at com.intellij.rt.junit.JUnitStarter.prepareStreamsAndStart(JUnitStarter.java:230)
+	at com.intellij.rt.junit.JUnitStarter.main(JUnitStarter.java:58)
+Caused by: java.lang.NoSuchMethodException: com.sun.proxy.$Proxy128.sayHelloCopy(java.lang.String)
+	at java.lang.Class.getMethod(Class.java:1786)
+	at org.springframework.remoting.support.RemoteInvocation.invoke(RemoteInvocation.java:214)
+	at org.springframework.remoting.support.DefaultRemoteInvocationExecutor.invoke(DefaultRemoteInvocationExecutor.java:39)
+	at org.springframework.remoting.support.RemoteInvocationBasedExporter.invoke(RemoteInvocationBasedExporter.java:78)
+	at org.springframework.remoting.support.RemoteInvocationBasedExporter.invokeAndCreateResult(RemoteInvocationBasedExporter.java:114)
+	at org.springframework.jms.remoting.JmsInvokerServiceExporter.onMessage(JmsInvokerServiceExporter.java:104)
+	at org.springframework.jms.listener.AbstractMessageListenerContainer.doInvokeListener(AbstractMessageListenerContainer.java:736)
+	at org.springframework.jms.listener.AbstractMessageListenerContainer.invokeListener(AbstractMessageListenerContainer.java:696)
+	at org.springframework.jms.listener.AbstractMessageListenerContainer.doExecuteListener(AbstractMessageListenerContainer.java:674)
+	at org.springframework.jms.listener.AbstractPollingMessageListenerContainer.doReceiveAndExecute(AbstractPollingMessageListenerContainer.java:318)
+	at org.springframework.jms.listener.AbstractPollingMessageListenerContainer.receiveAndExecute(AbstractPollingMessageListenerContainer.java:257)
+	at org.springframework.jms.listener.DefaultMessageListenerContainer$AsyncMessageListenerInvoker.invokeListener(DefaultMessageListenerContainer.java:1189)
+	at org.springframework.jms.listener.DefaultMessageListenerContainer$AsyncMessageListenerInvoker.executeOngoingLoop(DefaultMessageListenerContainer.java:1179)
+	at org.springframework.jms.listener.DefaultMessageListenerContainer$AsyncMessageListenerInvoker.run(DefaultMessageListenerContainer.java:1076)
+	at java.lang.Thread.run(Thread.java:748)
+	at org.springframework.remoting.support.RemoteInvocationUtils.fillInClientStackTraceIfPossible(RemoteInvocationUtils.java:45)
+	at org.springframework.remoting.support.RemoteInvocationResult.recreate(RemoteInvocationResult.java:156)
+	at org.springframework.jms.remoting.JmsInvokerClientInterceptor.recreateRemoteInvocationResult(JmsInvokerClientInterceptor.java:422)
+	at org.springframework.jms.remoting.JmsInvokerClientInterceptor.invoke(JmsInvokerClientInterceptor.java:210)
+	... 34 more
+
+2020-08-20 15:56:58.717 [Thread-8] INFO  o.s.context.support.DefaultLifecycleProcessor - Failed to shut down 1 bean with phase value 2147483647 within timeout of 30000: [rpcMsgListenerContainer]
+2020-08-20 15:56:59.724 [rpcMsgListenerContainer-1] WARN  o.s.jms.listener.DefaultMessageListenerContainer - Setup of JMS message listener invoker failed for destination 'queue://jms.rpc.queue' - trying to recover. Cause: java.lang.InterruptedException
+2020-08-20 15:56:59.741 [Thread-8] INFO  o.s.orm.jpa.LocalContainerEntityManagerFactoryBean - Closing JPA EntityManagerFactory for persistence unit 'default'
+2020-08-20 15:56:59.742 [Thread-8] INFO  o.h.t.s.i.SchemaDropperImpl$DelayedDropActionImpl - HHH000477: Starting delayed evictData of schema as part of SessionFactory shut-down'
+2020-08-20 15:56:59.750 [Thread-8] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown initiated...
+2020-08-20 15:56:59.756 [Thread-8] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown completed.
+2020-08-20 15:56:59.756 [Thread-8] INFO  o.s.cache.ehcache.EhCacheManagerFactoryBean - Shutting down EhCache CacheManager
+
+Process finished with exit code -1
+
+```
+
+
+
+这说明了两点：
+
+1. 服务端的RPC接口类名和客户端的RPC接口类名允许不一样
+2. 客户端PRC发起调用时，客户端的接口方法名必须和服务端的接口方法名保持一致。
+
+我们曾在3.2.5.1小节卖了个关子，如果我在服务端的PRC接口和实现类中都再添加一个方法sayHelloCopy(),是不是两个方法都可以映射成RPC服务呢？试试看：
+
+```java
+package com.example.demo.message;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * @author wangxg3
+ */
+public class MsgRpcServiceImpl implements  IMsgRpcService {
+    private static Logger  log = LoggerFactory.getLogger(MsgRpcServiceImpl.class);
+    @Override
+    public void sayHello(String name) {
+        log.info("向{}问好！",name);
+
+    }
+
+    @Override
+    public void sayHelloCopy(String name) {
+        log.info("sayHelloCopy()方法被调用，特向{}问好",name
+        );
+    }
+}
+```
+
+如上，在服务端的接口和实现类中也添加了sayHelloCopy()方法，再重新测试下：
+
+![image-20200820161155006](https://raw.githubusercontent.com/SterryWang/picsbed/master/img/20200820161157.png)
+
+
+
+测试结果符合预期。
+
+#### 3.2.6 小结
+
+有空再写吧。
+
+### 3.3 SPRING & AMQP实现
+
