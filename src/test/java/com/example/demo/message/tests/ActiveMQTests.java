@@ -162,7 +162,7 @@ public class ActiveMQTests {
      * 测试jms事务
      */
     @Test
-    public void testTransaction(){
+    public void testTransaction() throws InterruptedException {
 
         Employee e = new Employee();
         e.setId(1);
@@ -176,6 +176,7 @@ public class ActiveMQTests {
 
             log.error("消息发送失败，请检查事务是否已经回滚！",ex);
         }
+
 
 
     }

@@ -1146,9 +1146,11 @@ public class PojoListener {
 }
 ```
 
-第一，把pojo通过`@Component`注解实例化，第二，在方法上添加`JmsListener`注解，并说明容器的beanid,消息目的地。最后，其实我们可以直接在方法上入参使用具体的pojo类来接收信息，spring 会自动把消息转换成该对象送入，就是我们注解掉的这部分代码。
+第一，把pojolistener通过`@Component`注解实例化，第二，在handler方法上添加`JmsListener`注解，并说明容器的beanid,消息目的地。要额外说明下，其实我们可以直接在方法上入参使用具体的pojo对象来接收信息，spring 会自动把消息转换成该对象送入，就是我们注解掉的这部分代码。
 
 然后我们看下具体的监听器容器配置：[JmsReceiverConfig](src/main/java/com/example/demo/message/JmsReceiverConfig.java)
+
+`@EnableJms`帮助我们开启扫描所有使用`@JmsListener`注解过的方法，将其注册为endpoint
 
 ```java
 package com.example.demo.message;
@@ -1792,4 +1794,40 @@ public class MsgRpcServiceImpl implements  IMsgRpcService {
 有空再写吧。
 
 ### 3.3 SPRING & AMQP实现
+
+​		RabbitMQ是AMQP高级消息队列协议的典型实现。我们将以RabbitMQ作为broker，讲述Spring 如何基于AMQP协议的消息队列的相关API和应用。
+
+​		本节的内容，基本上可以套用上一节SPRING & JMS的流程，他们在一些概念，API，设计模式上上几乎可以做到一一对应，所以学习了上一节，几乎可以用类比的思维模式，来理解本节的内容。
+
+​		本章将围绕以下几个问题：
+
+- 为何使用AMQP?
+- 添加RabbitMQ到SPRING ，同时介绍下RabbitMQ
+- SPRING & RabbitMQ  API
+- 使用RabbitTemplate 发送消息
+- 从RabbitMQ 接收消息
+
+
+
+一个queue是可以绑定不同（多个）的routing key的：
+
+![image-20200826170302588](https://raw.githubusercontent.com/SterryWang/picsbed/master/img/20200826170305.png)
+
+my_queue_B`这个队列使用了两个不同的routing key 绑定到了同一个exchange。换句话说，通过两种路由都可以到达该目标队列
+
+那么同一个routing key 可以绑定到不同（多个）queue吗？如果可以，这是不是有点类似JMS的top模式呢？
+
+
+
+#### 关于rabbitadmin 和 @EnableRabbit的坑
+
+可以再额外研究下AMQP消息确认的功能。
+
+AMQP持久化的功能
+
+AMQP事务的功能
+
+发送失败重试，延时发送等
+
+
 
