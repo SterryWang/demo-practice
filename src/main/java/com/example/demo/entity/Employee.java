@@ -7,6 +7,7 @@ public class Employee  implements  Serializable{
 	public Integer id;
 
 	public String name;
+
 	public Integer age;
 	public String degree;
 	public String email;
