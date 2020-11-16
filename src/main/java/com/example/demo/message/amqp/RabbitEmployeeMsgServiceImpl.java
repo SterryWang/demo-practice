@@ -12,7 +12,7 @@ import javax.annotation.Resource;
  */
 @Service
 public class RabbitEmployeeMsgServiceImpl implements   IRabbitEmployeeMsgService {
-    @Resource(name = "myRabbitTemplate")
+    //@Resource(name = "myRabbitTemplate")
     private RabbitTemplate  rabbitTemplate;
     @Override
     public void send(Employee e) {

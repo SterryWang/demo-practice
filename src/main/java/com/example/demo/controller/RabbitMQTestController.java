@@ -14,7 +14,7 @@ import javax.annotation.Resource;
 @RestController
 @RequestMapping("/test/rabbitmq")
 public class RabbitMQTestController {
-    @Resource
+   // @Resource
     RabbitTemplate myRabbitTemplate;
 
     @GetMapping("/todirect")

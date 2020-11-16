@@ -1829,5 +1829,35 @@ AMQP事务的功能
 
 发送失败重试，延时发送等
 
+## 第四章 SPRING IOC
 
+### 4.2 SPRING  BEAN  生命周期管理
 
+参考博文：[spring bean 初始化和销毁](https://www.cnblogs.com/grey-wolf/p/6627925.html)
+
+​		spring的一大优点就是扩展性很强，比如，在spring bean 的生命周期中，给我们预留了很多参与bean 的生命周期的方法。
+大致梳理一下，有以下几种：
+
+- 通过实现 InitializingBean/DisposableBean 接口来定制初始化/销毁之前的操作方法；
+
+- 通过 <bean> 元素的 init-method/destroy-method属性指定初始化/销毁之前调用的操作方法；
+
+- 在指定方法上加上@PostConstruct 或@PreDestroy注解来制定该方法是在初始化还是销毁之前调用；
+
+- 自定义 org.springframework.beans.factory.config.BeanPostProcessor ，来让 spring 回调我们的方法来参与 bean的生命周期。
+
+  简而言之，可分成两大类，初始化方法 和 销毁前方法
+
+  **初始化方法:**  
+
+  1. 实现InitializingBean 接口，复写afterPo
+  2.  XML 配置` <bean> `元素的` init-method`属性指定的自定义初始化方法
+  3. `@PostConstruct`注解声明的自定义初始化方法
+
+  **销毁前方法**
+
+  1.DisposableBean 
+
+  ​     
+
+  
