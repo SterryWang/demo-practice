@@ -11,7 +11,7 @@
     </bean>
 
 <!--
-    不加这一行，没有办法用@Resource 给testInitBean  注入属性值；当然也可以用set方法来替代@Resource进行属性注入
+    不加下面这一行，没有办法使用用@Resource 给testInitBean  注入属性值；当然也可以用set方法来替代@Resource进行属性注入
 -->
     <context:component-scan base-package="com.example.demo.springinit.tests"/>
 

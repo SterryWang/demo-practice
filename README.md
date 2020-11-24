@@ -1801,7 +1801,7 @@ public class MsgRpcServiceImpl implements  IMsgRpcService {
 
 ​		本章将围绕以下几个问题：
 
-- 为何使用AMQP?
+- 为何使用AMQP?AMQP是什么？AMQP的基础概念有哪些？
 - 添加RabbitMQ到SPRING ，同时介绍下RabbitMQ
 - SPRING & RabbitMQ  API
 - 使用RabbitTemplate 发送消息
@@ -1833,31 +1833,68 @@ AMQP事务的功能
 
 ### 4.2 SPRING  BEAN  生命周期管理
 
-参考博文：[spring bean 初始化和销毁](https://www.cnblogs.com/grey-wolf/p/6627925.html)
+#### 4.2.1 缘起
 
-​		spring的一大优点就是扩展性很强，比如，在spring bean 的生命周期中，给我们预留了很多参与bean 的生命周期的方法。
+​		写这个小节的缘由，是源于工作中的一次经历。我们工作中用到的spring batch 框架，最初我们用启动器都是很简单粗暴的按照线程同步的思路去启动一个批处理作业：
+
+![image-20201120144003647](C:\Users\wangxg3\AppData\Roaming\Typora\typora-user-images\image-20201120144003647.png)
+
+当时我默认`jobLauncher.run`是同步执行一个批处理任务的，毕竟too young。直到有人提出批处理任务可能是被异步执行的，我才反思之前思维单一可能造成的后果，因为一直没有出问题，所以我从来没往异步处理上想。于是开始研究`jobLauncher`到底是同步还是异步执行一个批处理作业。那么先从它的`run()`方法开始看起来,jobLauncher的实现类是`SimpleJobLauncher`:
+
+![image-20201120144527030](C:\Users\wangxg3\AppData\Roaming\Typora\typora-user-images\image-20201120144527030.png)
+
+在`run()`方法中追踪到了这里，原来Job 是在这里启用线程执行的。那么到底是同步还是异步，决定在于这个线程池`taskExecutor`,它是`jobLauncher`的成员变量，SPRING 是可以自行给它注入的。于是我看看我们项目是否给`jobLauncher`装配了这个线程池：
+
+![image-20201120151041176](C:\Users\wangxg3\AppData\Roaming\Typora\typora-user-images\image-20201120151041176.png)
+
+很遗憾，实例化`jobLauncher`的时候仅仅装配了一个`jobRepository`,而没有装配`taskExecutor`。那么这个`taskExecutor`肯定不能为空呀，不然上面执行的时候要报空指针了呀，肯定是在其他地方注入了，果不其然，在`jobLauncher`的`afterPropertiesSet()`方法里注入了：
+
+![image-20201120151559941](C:\Users\wangxg3\AppData\Roaming\Typora\typora-user-images\image-20201120151559941.png)
+
+果然，注入了一个同步的线程池，这个线程池的源码非常简单，拿过来一个Runnable对象直接跑就是了，果然是同步执行啊。
+
+![image-20201120151707366](C:\Users\wangxg3\AppData\Roaming\Typora\typora-user-images\image-20201120151707366.png)
+
+从这里，我开始思考来自于`InitializingBean`接口的`afterPropertiesSet()`方法到底是在何时参与了`jobLauncher`这个实例的生命周期呢？于是我进一步想探索这个接口，才有了这个小节。
+
+**参考博文**：[spring bean 初始化和销毁](https://www.cnblogs.com/grey-wolf/p/6627925.html)
+
+​		spring的一大优点就是扩展性很强，比如，在spring bean 的生命周期中，给我们预留了很多参与bean 的生命周期的方法。我们的关注重点在于两大类，==**初始化方法 和 销毁前方法**==
 大致梳理一下，有以下几种：
 
-- 通过实现 InitializingBean/DisposableBean 接口来定制初始化/销毁之前的操作方法；
+- 通过实现` InitializingBean/DisposableBean`==接口==来定制初始化/销毁之前的操作方法；
 
-- 通过 <bean> 元素的 init-method/destroy-method属性指定初始化/销毁之前调用的操作方法；
+- 通过==xml配置文件==` <bean>` 元素的 `init-method/destroy-method`属性指定初始化/销毁之前调用的操作方法；
 
-- 在指定方法上加上@PostConstruct 或@PreDestroy注解来制定该方法是在初始化还是销毁之前调用；
+- 在指定方法上加上`@PostConstruct `或`@PreDestroy`==注解==来制定该方法是在初始化还是销毁之前调用，注意哦，==这两个注解JDK的而不是SPRING 的==
 
-- 自定义 org.springframework.beans.factory.config.BeanPostProcessor ，来让 spring 回调我们的方法来参与 bean的生命周期。
+- 自定义` org.springframework.beans.factory.config.BeanPostProcessor `接口的实现类，来让 spring 回调我们的方法来参与 bean的生命周期。该接口的两个方法可以在前面三种==初始化方法之前和之后执行==，有点像init-method的拦截器
 
-  简而言之，可分成两大类，初始化方法 和 销毁前方法
+- 
+
+  
 
   **初始化方法:**  
 
-  1. 实现InitializingBean 接口，复写afterPo
+  1. 实现`InitializingBean `接口，复写`afterPropertiesSet()`方法
   2.  XML 配置` <bean> `元素的` init-method`属性指定的自定义初始化方法
   3. `@PostConstruct`注解声明的自定义初始化方法
+  4. 
 
   **销毁前方法**
 
-  1.DisposableBean 
+  1. 实现`DisposableBean` 接口，复写`destroy()`方法
 
-  ​     
+  2. XML 配置` <bean> `元素的` destroy-method`属性指定的自定义初始化方法
+  3. 在指定方法上添加`@PreDestroy`注解，实现销毁前执行的方法，和前面两种一个效果
+  4. 
 
+  ​    通过这一小节，我们重点学习两点：
+
+  1. 这四种方法的主要作用是什么，要实现什么目的
+  
+  2. 这四种方法分别在什么阶段参与bean的生命周期，谁先谁后呢？
+  
+     
+  
   

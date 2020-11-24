@@ -25,11 +25,14 @@ public class TestInitBean implements InitializingBean, DisposableBean, Applicati
 
     private static Logger log = LoggerFactory.getLogger(TestInitBean.class);
 
-    @Resource
+    //@Resource
     private TestBeanForInject injectedProperty;
 
+    /**
+     * 构造器也参与bean的声明周期，我们也注明下
+     */
     public TestInitBean() {
-        log.info("构造方法执行，此时injectProperty应为null;injectProperty={}", injectedProperty);
+        log.info("构造方法执行，此时injectProperty应为null;实际injectProperty={}", injectedProperty);
 
     }
 
@@ -43,7 +46,7 @@ public class TestInitBean implements InitializingBean, DisposableBean, Applicati
 
         TestBeanForInject injectBean = (TestBeanForInject) applicationContext.getBean("testBeanForInject");
         log.info(injectBean.getName());
-        //JVM关闭前会调用这个钩子,钩子方法会调用@PreDestroy注解的方法
+        //容器上下文注册钩子，JVM关闭前会调用这个钩子,钩子方法会调用@PreDestroy注解的方法
         ctx.registerShutdownHook();
         //5s后关闭JVM
         log.info("5s后关闭JVM");
@@ -53,8 +56,15 @@ public class TestInitBean implements InitializingBean, DisposableBean, Applicati
 
     }
 
+    public TestBeanForInject getInjectedProperty() {
+        return injectedProperty;
+    }
+
+    @Resource
     public void setInjectedProperty(TestBeanForInject injectedProperty) {
+        log.info("正在通过SPRING的@Resource注解，执行属性injectedProperty的依赖输入，注入前属性为injectedProperty={}", this.injectedProperty);
         this.injectedProperty = injectedProperty;
+        log.info("依赖注入后injectedProperty={}",this.injectedProperty);
 
     }
 
@@ -66,7 +76,7 @@ public class TestInitBean implements InitializingBean, DisposableBean, Applicati
      */
     @Override
     public void afterPropertiesSet() throws Exception {
-        log.info("进入afterPropertySet方法");
+        log.info("进入InitializedBean接口的afterPropertySet()方法");
         log.info("属性injectProperty={}", injectedProperty);
         log.info("更改injectProperty的属性值为\"lisi\"");
         injectedProperty.setName("lisi");
@@ -91,17 +101,19 @@ public class TestInitBean implements InitializingBean, DisposableBean, Applicati
     @PostConstruct
     public void postConstruct() {
 
-        log.info("@PostConstrut....");
+        log.info("进入注解@PostConstrut标注的方法postConstruct()....");
         log.info("属性injectProperty已注入：" + (injectedProperty != null));
         log.info("属性injectProperty已注入：" + injectedProperty);
+        log.info("退出注解@PostConstrut标注的方法postConstruct()");
 
     }
 
     @PreDestroy
     public void preDestroy() {
 
-        log.info("@PreDestroy.....");
+        log.info("进入注解@PreDestroy标注的方法preDestroy().....");
         log.info("属性injectProperty已注入：" + injectedProperty);
+        log.info("退出注解@PreDestroy标注的方法preDestroy()");
 
     }
 
@@ -113,8 +125,9 @@ public class TestInitBean implements InitializingBean, DisposableBean, Applicati
      * @return:
      */
     public void xmlDefinedPreDestroy() {
-        log.info("进入xmlDefinedPreDestroy.....");
+        log.info("进入xml指定的destroy-method方法，xmlDefinedPreDestroy().....");
         log.info("属性injectProperty已注入：" + injectedProperty);
+        log.info("退出xml指定的destroy-method方法，xmlDefinedPreDestroy().....");
 
     }
 
